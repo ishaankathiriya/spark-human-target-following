@@ -1,0 +1,22 @@
+# ROS 2 Build Files
+build/
+install/
+log/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# CMake
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Misc
+*.swp
+*.bak
+*.tmp
+*.DS_Store

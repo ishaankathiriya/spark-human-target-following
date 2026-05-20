@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+from human_tracker.tracker_node import main
+main()
