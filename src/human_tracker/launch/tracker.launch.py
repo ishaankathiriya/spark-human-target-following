@@ -15,17 +15,21 @@ def generate_launch_description():
             name='camera',
             parameters=[{
                 'enable_color': True,
-                'enable_depth': False,
+                'enable_depth': True,
+                'align_depth.enable': True,
                 'color_width': 640,
                 'color_height': 480,
                 'color_fps': 30.0,
+                'depth_width': 640,
+                'depth_height': 480,
+                'depth_fps': 30.0,
             }],
         ),
 
         Node(
             package='human_tracker',
-            executable='tracker_node',
-            name='human_tracker',
+            executable='tracker_3d_node',
+            name='human_tracker_3d',
             parameters=[{
                 'confidence': LaunchConfiguration('confidence'),
                 'target_id': LaunchConfiguration('target_id'),
