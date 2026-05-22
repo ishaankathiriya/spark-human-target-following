@@ -1,0 +1,241 @@
+<?xml version="1.0"?>
+<!--
+  DJI F450 Quadrotor – xacro version
+  Process with:  xacro f450_v2.urdf > f450_v2_expanded.urdf
+
+  Coordinate convention: X = forward, Y = left, Z = up
+  base_link origin: geometric center of the frame assembly
+
+  Motor layout (viewed from above):
+    [FL] CCW     [FR] CW
+          \     /
+           \   /
+            [C]
+           /   \
+          /     \
+    [RL] CW     [RR] CCW
+-->
+<robot name="dji_f450" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ================================================================
+       MESH PATHS
+       ================================================================ -->
+  <xacro:property name="mesh_base"   value="package://f450_description/meshes"/>
+  <xacro:property name="mesh_top"    value="${mesh_base}/top_plate.stl"/>
+  <xacro:property name="mesh_bottom" value="${mesh_base}/bottom_plate.stl"/>
+  <xacro:property name="mesh_arm"    value="${mesh_base}/arm.stl"/>
+  <xacro:property name="mesh_motor"  value="${mesh_base}/motor.stl"/>
+  <xacro:property name="mesh_prop"   value="${mesh_base}/propeller.stl"/>
+
+  <!-- SolidWorks exports STL in mm; URDF expects metres → scale = 0.001.
+       If meshes appear the wrong size, flip this to "1 1 1". -->
+  <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>
+
+
+  <!-- ================================================================
+       PROPERTIES  –  all physical constants in one place
+       ================================================================ -->
+
+  <!-- Frame -->
+  <xacro:property name="body_xy"         value="0.100"/>  <!-- plate side length (m) -->
+  <xacro:property name="body_z"          value="0.038"/>  <!-- actual span: top plate (z=+0.013) to bottom plate (z=-0.025) -->
+  <xacro:property name="body_cz"         value="-0.006"/> <!-- COM z: midpoint between plates -->
+
+  <!-- Arms (2212 frame arms) -->
+  <xacro:property name="motor_to_center" value="0.225"/>  <!-- wheelbase / 2 (m) -->
+  <xacro:property name="arm_length"      value="0.175"/>  <!-- external arm length (m) -->
+  <xacro:property name="arm_width"       value="0.018"/>
+  <xacro:property name="arm_height"      value="0.010"/>
+  <!-- COM derived from mesh centroid after user-tuned visual transform -->
+  <xacro:property name="arm_cx"          value="0.138"/>
+  <xacro:property name="arm_cz"          value="0.000"/>  <!-- COM relative to joint frame (beam centre = joint origin) -->
+  <xacro:property name="arm_z_joint"     value="0.009"/>  <!-- arm beam centre height above base_link origin -->
+
+  <!-- Motors (Holybro 2216 brushless) -->
+  <xacro:property name="motor_r"         value="0.014"/>  <!-- radius (m) -->
+  <xacro:property name="motor_l"         value="0.044"/>  <!-- actual height from STL: Y range -2.5→41.5 mm -->
+  <xacro:property name="motor_z_base"    value="0.010"/>  <!-- visual xyz_z offset (user-tuned); motor sits this far above joint -->
+
+  <!-- Rotors (1045 prop: 10 in diameter ≈ 0.260 m span) -->
+  <xacro:property name="rotor_r"         value="0.119"/>  <!-- radius (m) -->
+  <xacro:property name="rotor_t"         value="0.003"/>  <!-- thin-disc collision thickness (m) -->
+  <!-- Rotor joint: 1 mm above motor top face (motor_z_base + motor_l + gap) -->
+  <xacro:property name="rotor_z_offset"  value="${motor_z_base + motor_l + 0.001}"/>
+
+  <!-- Masses (kg) -->
+  <xacro:property name="body_mass"       value="0.100"/>
+  <xacro:property name="arm_mass"        value="0.045"/>
+  <xacro:property name="motor_mass"      value="0.055"/>
+  <xacro:property name="rotor_mass"      value="0.015"/>
+
+
+  <!-- ================================================================
+       INERTIA HELPER MACROS
+       ================================================================ -->
+
+  <!-- Solid box: long axis = X, width = Y, height = Z -->
+  <xacro:macro name="box_inertia" params="m x y z">
+    <inertia ixx="${m/12*(y*y+z*z)}" ixy="0" ixz="0"
+             iyy="${m/12*(x*x+z*z)}" iyz="0"
+             izz="${m/12*(x*x+y*y)}"/>
+  </xacro:macro>
+
+  <!-- Solid cylinder: axis along Z -->
+  <xacro:macro name="cylinder_inertia" params="m r l">
+    <inertia ixx="${m/12*(3*r*r+l*l)}" ixy="0" ixz="0"
+             iyy="${m/12*(3*r*r+l*l)}" iyz="0"
+             izz="${m/2*r*r}"/>
+  </xacro:macro>
+
+
+  <!-- ================================================================
+       MATERIALS
+       ================================================================ -->
+  <material name="red">       <color rgba="0.85 0.08 0.08 1"/> </material>
+  <material name="black">     <color rgba="0.10 0.10 0.10 1"/> </material>
+  <material name="dark_gray"> <color rgba="0.22 0.22 0.22 1"/> </material>
+
+
+  <!-- ================================================================
+       BASE LINK
+       ================================================================ -->
+  <link name="base_link">
+    <inertial>
+      <mass value="${body_mass}"/>
+      <origin xyz="0 0 ${body_cz}" rpy="0 0 0"/>
+      <xacro:box_inertia m="${body_mass}" x="${body_xy}" y="${body_xy}" z="${body_z}"/>
+    </inertial>
+    <!-- Top plate: STL is flat in XZ (Y=thickness). Rotate 90° about X → flat in XY (Z=thickness). -->
+    <visual name="top_plate">
+      <origin xyz="0 0 0.013" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="${mesh_top}" scale="${mesh_scale}"/></geometry>
+      <material name="red"/>
+    </visual>
+    <!-- Bottom plate: same orientation as top plate. -->
+    <visual name="bottom_plate">
+      <origin xyz="0 0 -0.025" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="${mesh_bottom}" scale="${mesh_scale}"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <!-- Collision stays as a primitive box (mesh collision is expensive) -->
+    <collision>
+      <origin xyz="0 0 ${body_cz}" rpy="0 0 0"/>
+      <geometry><box size="${body_xy} ${body_xy} ${body_z}"/></geometry>
+    </collision>
+  </link>
+
+
+  <!-- ================================================================
+       ARM ASSEMBLY MACRO
+       Instantiates one arm + motor + rotor and their joints.
+
+       params:
+         prefix    – link/joint name suffix (e.g. front_right)
+         yaw       – arm direction from +X axis in radians
+         arm_color – material name for the arm visual
+       ================================================================ -->
+  <xacro:macro name="arm_assembly" params="prefix yaw arm_color">
+
+    <!-- ARM LINK -->
+    <link name="arm_${prefix}">
+      <inertial>
+        <mass value="${arm_mass}"/>
+        <origin xyz="${arm_cx} 0 ${arm_cz}" rpy="0 0 0"/>
+        <xacro:box_inertia m="${arm_mass}" x="${arm_length}" y="${arm_width}" z="${arm_height}"/>
+      </inertial>
+      <!-- Arm: STL Z = long axis. Combined rotation:
+             Ry(+90°) aligns STL Z → local +X (outward),
+             then Rx(-90°) corrects cross-section (= 90° CW about world y=x / local X).
+             xyz shifts the mesh so its outer tip meets the motor joint and
+             its height centres at bottom-plate level (-0.011 m). -->
+      <visual>
+        <origin xyz="0.139 0 0.005" rpy="-1.5708 3.1416 -4.712"/>
+        <geometry><mesh filename="${mesh_arm}" scale="${mesh_scale}"/></geometry>
+        <material name="${arm_color}"/>
+      </visual>
+      <!-- Collision stays as a primitive box -->
+      <collision>
+        <origin xyz="${arm_cx} 0 ${arm_cz}" rpy="0 0 0"/>
+        <geometry><box size="${arm_length} ${arm_width} ${arm_height}"/></geometry>
+      </collision>
+    </link>
+
+    <joint name="body_to_arm_${prefix}" type="fixed">
+      <parent link="base_link"/>
+      <child link="arm_${prefix}"/>
+      <origin xyz="0 0 ${arm_z_joint}" rpy="0 0 ${yaw}"/>
+    </joint>
+
+    <!-- MOTOR LINK -->
+    <link name="motor_${prefix}">
+      <inertial>
+        <mass value="${motor_mass}"/>
+        <!-- COM = visual base offset + half motor height (from STL analysis) -->
+        <origin xyz="0 0 ${motor_z_base + motor_l/2 - arm_z_joint}" rpy="0 0 0"/>
+        <xacro:cylinder_inertia m="${motor_mass}" r="${motor_r}" l="${motor_l}"/>
+      </inertial>
+      <!-- Motor: STL cylinder axis is Y. Rotate 90° about X → cylinder axis becomes Z (upward). -->
+      <visual>
+        <origin xyz="0 0 ${0.010 - arm_z_joint}" rpy="1.5708 0 0"/>
+        <geometry><mesh filename="${mesh_motor}" scale="${mesh_scale}"/></geometry>
+        <material name="dark_gray"/>
+      </visual>
+      <!-- Collision: cylinder centred at actual motor COM position -->
+      <collision>
+        <origin xyz="0 0 ${motor_z_base + motor_l/2 - arm_z_joint}" rpy="0 0 0"/>
+        <geometry><cylinder radius="${motor_r}" length="${motor_l}"/></geometry>
+      </collision>
+    </link>
+
+    <joint name="arm_to_motor_${prefix}" type="fixed">
+      <parent link="arm_${prefix}"/>
+      <child link="motor_${prefix}"/>
+      <origin xyz="${motor_to_center} 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <!-- ROTOR LINK -->
+    <link name="rotor_${prefix}">
+      <inertial>
+        <mass value="${rotor_mass}"/>
+        <!-- COM = visual xyz_z (-0.013) + STL Y-centre (5 mm = 0.005 m after rotation) -->
+        <origin xyz="0 0 ${-0.008}" rpy="0 0 0"/>
+        <xacro:cylinder_inertia m="${rotor_mass}" r="${rotor_r}" l="${rotor_t}"/>
+      </inertial>
+      <!-- Propeller: STL is flat in XZ (Y=thickness). Rotate 90° about X → flat in XY (spins about Z). -->
+      <visual>
+        <origin xyz="0 0 ${-0.013}" rpy="1.5708 0 0"/>
+        <geometry><mesh filename="${mesh_prop}" scale="${mesh_scale}"/></geometry>
+        <material name="black"/>
+      </visual>
+      <!-- Collision: disc centred at actual propeller COM position -->
+      <collision>
+        <origin xyz="0 0 ${-0.008}" rpy="0 0 0"/>
+        <geometry><cylinder radius="${rotor_r}" length="${rotor_t}"/></geometry>
+      </collision>
+    </link>
+
+    <!-- Continuous joint – positive velocity = CCW from above.
+         CW rotors (front_right, rear_left): command negative velocity.  -->
+    <joint name="motor_to_rotor_${prefix}" type="continuous">
+      <parent link="motor_${prefix}"/>
+      <child link="rotor_${prefix}"/>
+      <origin xyz="0 0 ${rotor_z_offset - arm_z_joint - 0.001}" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+
+  </xacro:macro>
+
+
+  <!-- ================================================================
+       INSTANTIATE FOUR ARM ASSEMBLIES
+         front_right:  yaw = -pi/4   (CW  rotor)
+         front_left:   yaw = +pi/4   (CCW rotor)
+         rear_left:    yaw = +3*pi/4 (CW  rotor)
+         rear_right:   yaw = -3*pi/4 (CCW rotor)
+       ================================================================ -->
+  <xacro:arm_assembly prefix="front_right" yaw="${-pi/4}"    arm_color="red"/>
+  <xacro:arm_assembly prefix="front_left"  yaw="${pi/4}"     arm_color="red"/>
+  <xacro:arm_assembly prefix="rear_left"   yaw="${3*pi/4}"   arm_color="black"/>
+  <xacro:arm_assembly prefix="rear_right"  yaw="${-3*pi/4}"  arm_color="black"/>
+
+</robot>
