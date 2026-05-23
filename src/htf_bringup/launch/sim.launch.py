@@ -28,10 +28,21 @@ def generate_launch_description():
     bridge_config = os.path.join(pkg_bringup, 'config', 'gz_bridge.yaml')
 
     # ------------------------------------------------------------------
+    # 0. Kill any leftover MicroXRCEAgent from a previous session.
+    #    Port 8888 can only be bound once; an orphaned agent blocks the new one.
+    #    '|| true' makes the command succeed even if no process was found.
+    # ------------------------------------------------------------------
+    kill_old_agent = ExecuteProcess(
+        cmd=['bash', '-c', 'pkill -f MicroXRCEAgent || true'],
+        output='screen',
+        name='kill_old_agent',
+    )
+
+    # ------------------------------------------------------------------
     # 1. MicroXRCEAgent
     #    Connects to the uXRCE-DDS client already running inside PX4 SITL
     #    on UDP port 8888 and exposes /fmu/in|out/... topics to ROS 2.
-    #    Small delay so SITL is fully up before the agent tries to connect.
+    #    Delayed 3 s: 0.5 s for the pkill to clear the port + 2.5 s for SITL.
     # ------------------------------------------------------------------
     xrce_agent = TimerAction(
         period=3.0,
@@ -77,6 +88,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        kill_old_agent,
         xrce_agent,
         rsp,
         gz_bridge,

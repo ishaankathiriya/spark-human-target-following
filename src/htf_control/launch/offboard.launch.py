@@ -9,7 +9,6 @@ def generate_launch_description():
         name='offboard_controller',
         output='screen',
         parameters=[{
-            'use_sim_time': True,
             'follow_distance': 2.0,
             'max_xy_speed': 1.5,
             'max_z_speed': 0.8,
