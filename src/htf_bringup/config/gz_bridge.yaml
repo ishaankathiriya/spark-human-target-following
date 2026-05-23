@@ -1,0 +1,45 @@
+# ros_gz_bridge topic configuration for HTF simulation
+# Format: {gz_topic_name, ros_topic_name, gz_type, ros_type, direction}
+# direction: GZ_TO_ROS, ROS_TO_GZ, or BIDIRECTIONAL
+
+# Gazebo simulation clock — must be bridged so ROS 2 nodes use sim time
+- gz_topic_name: /clock
+  ros_topic_name: /clock
+  gz_type_name: gz.msgs.Clock
+  ros_type_name: rosgraph_msgs/msg/Clock
+  direction: GZ_TO_ROS
+
+# D435i colour image
+- gz_topic_name: /camera/image
+  ros_topic_name: /camera/image
+  gz_type_name: gz.msgs.Image
+  ros_type_name: sensor_msgs/msg/Image
+  direction: GZ_TO_ROS
+
+# D435i depth image
+- gz_topic_name: /camera/depth_image
+  ros_topic_name: /camera/depth_image
+  gz_type_name: gz.msgs.Image
+  ros_type_name: sensor_msgs/msg/Image
+  direction: GZ_TO_ROS
+
+# Camera intrinsics (needed for 3D projection)
+- gz_topic_name: /camera/camera_info
+  ros_topic_name: /camera/camera_info
+  gz_type_name: gz.msgs.CameraInfo
+  ros_type_name: sensor_msgs/msg/CameraInfo
+  direction: GZ_TO_ROS
+
+# D435i point cloud
+- gz_topic_name: /camera/points
+  ros_topic_name: /camera/points
+  gz_type_name: gz.msgs.PointCloudPacked
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  direction: GZ_TO_ROS
+
+# D435i built-in IMU
+- gz_topic_name: /camera/imu
+  ros_topic_name: /camera/imu
+  gz_type_name: gz.msgs.IMU
+  ros_type_name: sensor_msgs/msg/Imu
+  direction: GZ_TO_ROS

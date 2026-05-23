@@ -238,4 +238,96 @@
   <xacro:arm_assembly prefix="rear_left"   yaw="${3*pi/4}"   arm_color="black"/>
   <xacro:arm_assembly prefix="rear_right"  yaw="${-3*pi/4}"  arm_color="black"/>
 
+
+  <!-- ================================================================
+       D435i RealSense Camera Mount  –  forward-facing, 0° tilt
+       Mount bracket centre: x=0.060, z=-0.010 from base_link
+       Camera link centre:   x≈0.083, z=-0.010 from base_link
+       ================================================================ -->
+
+  <!-- Mount dimensions (small bracket) -->
+  <xacro:property name="cam_mnt_x"  value="0.020"/>
+  <xacro:property name="cam_mnt_y"  value="0.040"/>
+  <xacro:property name="cam_mnt_z"  value="0.030"/>
+  <xacro:property name="cam_mnt_m"  value="0.005"/>
+
+  <!-- D435i physical dimensions -->
+  <xacro:property name="d435i_x"    value="0.025"/>
+  <xacro:property name="d435i_y"    value="0.090"/>
+  <xacro:property name="d435i_z"    value="0.025"/>
+  <xacro:property name="d435i_mass" value="0.072"/>
+
+  <!-- Camera mount bracket -->
+  <link name="camera_mount">
+    <inertial>
+      <mass value="${cam_mnt_m}"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <xacro:box_inertia m="${cam_mnt_m}" x="${cam_mnt_x}" y="${cam_mnt_y}" z="${cam_mnt_z}"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${cam_mnt_x} ${cam_mnt_y} ${cam_mnt_z}"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${cam_mnt_x} ${cam_mnt_y} ${cam_mnt_z}"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="body_to_camera_mount" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_mount"/>
+    <origin xyz="0.060 0 -0.010" rpy="0 0 0"/>
+  </joint>
+
+  <!-- D435i camera body -->
+  <link name="camera_link">
+    <inertial>
+      <mass value="${d435i_mass}"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <xacro:box_inertia m="${d435i_mass}" x="${d435i_x}" y="${d435i_y}" z="${d435i_z}"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${d435i_x} ${d435i_y} ${d435i_z}"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${d435i_x} ${d435i_y} ${d435i_z}"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="camera_mount_to_camera" type="fixed">
+    <parent link="camera_mount"/>
+    <child link="camera_link"/>
+    <origin xyz="${cam_mnt_x/2 + d435i_x/2} 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Optical frames  (ROS camera convention: z=into-scene, x=right, y=down)
+       rpy="-pi/2 0 -pi/2" rotates body frame (x=fwd,y=left,z=up) to optical frame -->
+  <link name="camera_color_optical_frame"/>
+  <joint name="camera_color_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_color_optical_frame"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
+  <link name="camera_depth_optical_frame"/>
+  <joint name="camera_depth_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_depth_optical_frame"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
+  <!-- D435i IMU frame (~20 mm behind lens centre, ~5 mm left) -->
+  <link name="camera_imu_frame"/>
+  <joint name="camera_imu_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_imu_frame"/>
+    <origin xyz="-0.020 0.005 0" rpy="0 0 0"/>
+  </joint>
+
+
 </robot>
