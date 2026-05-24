@@ -301,25 +301,25 @@
     <origin xyz="0.060 0 -0.010" rpy="0 0 0"/>
   </joint>
 
-  <!-- D435i camera body — STL mesh replacing the placeholder box.
-       rpy and xyz here are initial guesses; tune in RViz until the camera
-       body sits correctly inside the case with lenses facing forward (+X). -->
+  <!-- D435i camera body.
+       camera.STL is in METRES (bounding box 90×25×25 mm), so scale="1 1 1".
+       Visual origin tuned by user: xyz="0.009 -0.006 -0.005" rpy="-1.5708 0 -1.5708".
+       COM derived from STL centroid (~0.005,-0.002,-0.015 m) rotated by Rz(-π/2)×Rx(-π/2):
+         p_link = R·p_stl + xyz_offset = (-0.006, -0.011, -0.003) m  -->
   <link name="camera_link">
     <inertial>
       <mass value="${d435i_mass}"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="-0.006 -0.011 -0.003" rpy="0 0 0"/>
       <xacro:box_inertia m="${d435i_mass}" x="${d435i_x}" y="${d435i_y}" z="${d435i_z}"/>
     </inertial>
-    <!-- camera.STL is exported in METRES (bounding box ≈ 90×25×25 mm = 0.090×0.025×0.025 m).
-         All other meshes are in mm and use mesh_scale=0.001; this one must use 1 1 1. -->
     <visual>
       <origin xyz="0.009 -0.006 -0.005" rpy="-1.5708 0 -1.5708"/>
       <geometry><mesh filename="${mesh_camera}" scale="1 1 1"/></geometry>
       <material name="dark_gray"/>
     </visual>
-    <!-- Collision stays as the original box primitive -->
+    <!-- Collision box centred on computed COM in link frame -->
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="-0.006 -0.011 -0.003" rpy="0 0 0"/>
       <geometry><box size="${d435i_x} ${d435i_y} ${d435i_z}"/></geometry>
     </collision>
   </link>
