@@ -26,6 +26,8 @@
   <xacro:property name="mesh_arm"    value="${mesh_base}/arm.stl"/>
   <xacro:property name="mesh_motor"  value="${mesh_base}/motor.stl"/>
   <xacro:property name="mesh_prop"   value="${mesh_base}/propeller.stl"/>
+  <xacro:property name="mesh_camera" value="${mesh_base}/camera.STL"/>
+  <xacro:property name="mesh_case"   value="${mesh_base}/case_intel_realsense_d435.stl"/>
 
   <!-- SolidWorks exports STL in mm; URDF expects metres → scale = 0.001.
        If meshes appear the wrong size, flip this to "1 1 1". -->
@@ -257,7 +259,9 @@
   <xacro:property name="d435i_z"    value="0.025"/>
   <xacro:property name="d435i_mass" value="0.072"/>
 
-  <!-- Camera mount bracket -->
+  <!-- Camera mount / case — STL mesh replacing the placeholder box.
+       rpy and xyz here are initial guesses; tune in RViz until the case
+       sits correctly around the camera body. -->
   <link name="camera_mount">
     <inertial>
       <mass value="${cam_mnt_m}"/>
@@ -265,10 +269,11 @@
       <xacro:box_inertia m="${cam_mnt_m}" x="${cam_mnt_x}" y="${cam_mnt_y}" z="${cam_mnt_z}"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><box size="${cam_mnt_x} ${cam_mnt_y} ${cam_mnt_z}"/></geometry>
+      <origin xyz="0.01 0 -0.02" rpy="0 0 1.5708"/>
+      <geometry><mesh filename="${mesh_case}" scale="${mesh_scale}"/></geometry>
       <material name="dark_gray"/>
     </visual>
+    <!-- Collision stays as the original box primitive -->
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry><box size="${cam_mnt_x} ${cam_mnt_y} ${cam_mnt_z}"/></geometry>
@@ -281,7 +286,9 @@
     <origin xyz="0.060 0 -0.010" rpy="0 0 0"/>
   </joint>
 
-  <!-- D435i camera body -->
+  <!-- D435i camera body — STL mesh replacing the placeholder box.
+       rpy and xyz here are initial guesses; tune in RViz until the camera
+       body sits correctly inside the case with lenses facing forward (+X). -->
   <link name="camera_link">
     <inertial>
       <mass value="${d435i_mass}"/>
@@ -290,9 +297,10 @@
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><box size="${d435i_x} ${d435i_y} ${d435i_z}"/></geometry>
+      <geometry><mesh filename="${mesh_camera}" scale="${mesh_scale}"/></geometry>
       <material name="dark_gray"/>
     </visual>
+    <!-- Collision stays as the original box primitive -->
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry><box size="${d435i_x} ${d435i_y} ${d435i_z}"/></geometry>
