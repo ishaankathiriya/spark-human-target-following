@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Offboard velocity controller for the HTF quadrotor.
+Offboard PD velocity controller for the HTF quadrotor.
 
 State machine:
   PRIMING → ARMING → TAKEOFF → HOLD ↔ FOLLOW
@@ -9,7 +9,14 @@ State machine:
   ARMING  : retry arm + OFFBOARD every 1 s until both confirmed
   TAKEOFF : position-mode climb to target altitude; auto-transitions when close
   HOLD    : velocity-mode hover (zero vel) when no target visible
-  FOLLOW  : velocity-mode tracking when /tracker/centroid_3d is fresh
+  FOLLOW  : PD velocity-mode tracking when /tracker/centroid_3d is fresh
+
+Control architecture (FOLLOW state):
+  - EMA filter on raw centroid (alpha=ema_alpha) removes single-frame jitter
+  - PD on forward distance: P reacts to gap error, D brakes when gap is closing
+    so the drone starts backing up before the human reaches follow_distance
+  - P-only on lateral and altitude (yaw handles lateral, so kp_lat=0 by default)
+  - Lateral deadband: ignore small horizontal offsets to prevent yaw-hunting
 
 Topics consumed:
   /fmu/out/vehicle_local_position_v1  (px4_msgs/VehicleLocalPosition)
@@ -42,14 +49,13 @@ from geometry_msgs.msg import PointStamped
 
 
 class _State(IntEnum):
-    PRIMING  = 0   # streaming setpoints to prime PX4 before arming
-    ARMING   = 1   # sending arm + OFFBOARD commands, retrying until confirmed
-    TAKEOFF  = 2   # position-mode climb to target altitude
-    HOLD     = 3   # velocity-mode hover (zero vel)
-    FOLLOW   = 4   # velocity-mode tracking
+    PRIMING  = 0
+    ARMING   = 1
+    TAKEOFF  = 2
+    HOLD     = 3
+    FOLLOW   = 4
 
 
-# Publishing TO PX4 (/fmu/in/): TRANSIENT_LOCAL satisfies PX4's VOLATILE subscriber.
 _PX4_PUB_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -57,8 +63,6 @@ _PX4_PUB_QOS = QoSProfile(
     depth=1,
 )
 
-# Subscribing FROM PX4 (/fmu/out/): VOLATILE matches the XRCE agent's publisher.
-# Using TRANSIENT_LOCAL here would cause a QoS incompatibility and no messages.
 _PX4_SUB_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
@@ -68,33 +72,47 @@ _PX4_SUB_QOS = QoSProfile(
 
 
 class OffboardController(Node):
-    _PREARM_CYCLES  = 20    # 50 Hz cycles before first arm attempt (~0.4 s)
-    _TARGET_TIMEOUT = 1.0   # seconds without detection → FOLLOW → HOLD
-    _TAKEOFF_TOL    = 0.3   # metres: altitude error threshold to exit TAKEOFF
+    _PREARM_CYCLES  = 20     # 50 Hz cycles before first arm attempt (~0.4 s)
+    _TARGET_TIMEOUT = 1.0    # seconds without detection → FOLLOW → HOLD
+    _TAKEOFF_TOL    = 0.3    # metres: altitude error threshold to exit TAKEOFF
+    _LOOP_DT        = 0.02   # seconds: control loop period (50 Hz)
 
     def __init__(self):
         super().__init__('offboard_controller')
 
         # --- parameters -------------------------------------------------------
-        self.declare_parameter('takeoff_altitude', 2.0)  # metres above ground
-        self.declare_parameter('follow_distance',  2.0)  # metres
-        self.declare_parameter('max_xy_speed',     1.5)  # m/s
-        self.declare_parameter('max_z_speed',      0.8)  # m/s
-        self.declare_parameter('max_yaw_rate',     0.8)  # rad/s
-        self.declare_parameter('kp_dist',          0.5)
-        self.declare_parameter('kp_lat',           0.0)  # 0 = yaw-only lateral
-        self.declare_parameter('kp_alt',           0.4)
-        self.declare_parameter('kp_yaw',           0.6)
+        self.declare_parameter('takeoff_altitude', 2.0)   # metres above ground
+        self.declare_parameter('follow_distance',  1.5)   # metres behind centroid
+        self.declare_parameter('height_offset',    0.5)   # metres above centroid
+        self.declare_parameter('max_xy_speed',     1.5)   # m/s
+        self.declare_parameter('max_z_speed',      0.8)   # m/s
+        self.declare_parameter('max_yaw_rate',     0.8)   # rad/s
+        # PD gains for forward distance
+        self.declare_parameter('kp_dist',          0.6)
+        self.declare_parameter('kd_dist',          0.4)   # derivative: brakes when gap closes
+        # P gains for lateral (body-right) and altitude
+        self.declare_parameter('kp_lat',           0.0)   # 0 = yaw-only lateral
+        self.declare_parameter('kp_alt',           0.5)
+        # Yaw P gain
+        self.declare_parameter('kp_yaw',           0.8)
+        # EMA smoothing factor for centroid (0=max smooth/lag, 1=raw/no filter)
+        self.declare_parameter('ema_alpha',        0.4)
+        # Lateral deadband: ignore |lat_err| below this to suppress yaw-hunting
+        self.declare_parameter('lat_deadband',     0.08)  # metres
 
-        self._takeoff_alt = self.get_parameter('takeoff_altitude').value
-        self._follow_dist = self.get_parameter('follow_distance').value
-        self._max_xy      = self.get_parameter('max_xy_speed').value
-        self._max_z       = self.get_parameter('max_z_speed').value
-        self._max_yaw     = self.get_parameter('max_yaw_rate').value
-        self._kp_d        = self.get_parameter('kp_dist').value
-        self._kp_l        = self.get_parameter('kp_lat').value
-        self._kp_a        = self.get_parameter('kp_alt').value
-        self._kp_y        = self.get_parameter('kp_yaw').value
+        self._takeoff_alt  = self.get_parameter('takeoff_altitude').value
+        self._follow_dist  = self.get_parameter('follow_distance').value
+        self._height_off   = self.get_parameter('height_offset').value
+        self._max_xy       = self.get_parameter('max_xy_speed').value
+        self._max_z        = self.get_parameter('max_z_speed').value
+        self._max_yaw      = self.get_parameter('max_yaw_rate').value
+        self._kp_d         = self.get_parameter('kp_dist').value
+        self._kd_d         = self.get_parameter('kd_dist').value
+        self._kp_l         = self.get_parameter('kp_lat').value
+        self._kp_a         = self.get_parameter('kp_alt').value
+        self._kp_y         = self.get_parameter('kp_yaw').value
+        self._ema_alpha    = self.get_parameter('ema_alpha').value
+        self._lat_db       = self.get_parameter('lat_deadband').value
 
         # --- publishers -------------------------------------------------------
         self._ocm_pub = self.create_publisher(
@@ -125,10 +143,16 @@ class OffboardController(Node):
         self._last_detection = 0.0
         self._cycle          = 0
         self._last_arm_t     = 0.0
-        self._takeoff_z_ned  = None   # target NED z, set when ARMING completes
+        self._ground_z       = None   # NED z latched on first PRIMING cycle
+        self._takeoff_z_ned  = None
         self._state          = _State.PRIMING
 
-        self.create_timer(0.02, self._control_loop)   # 50 Hz
+        # EMA-filtered centroid [x, y, z] in camera optical frame (metres)
+        self._filt           = None
+        # Previous distance error for PD derivative term
+        self._prev_dist_err  = 0.0
+
+        self.create_timer(self._LOOP_DT, self._control_loop)
         self.get_logger().info('OffboardController ready.')
 
     # --------------------------------------------------------------------------
@@ -142,11 +166,20 @@ class OffboardController(Node):
         self._vehicle_status = msg
 
     def _centroid_cb(self, msg: PointStamped):
-        self._centroid = msg
+        pt = msg.point
+        if self._filt is None:
+            self._filt = [pt.x, pt.y, pt.z]
+            self._prev_dist_err = pt.z - self._follow_dist
+        else:
+            a = self._ema_alpha
+            self._filt[0] = a * pt.x + (1.0 - a) * self._filt[0]
+            self._filt[1] = a * pt.y + (1.0 - a) * self._filt[1]
+            self._filt[2] = a * pt.z + (1.0 - a) * self._filt[2]
+        self._centroid       = msg
         self._last_detection = time.monotonic()
 
     # --------------------------------------------------------------------------
-    # Control loop
+    # Control loop (50 Hz)
     # --------------------------------------------------------------------------
 
     def _control_loop(self):
@@ -156,6 +189,8 @@ class OffboardController(Node):
 
         # ── PRIMING ───────────────────────────────────────────────────────────
         if self._state == _State.PRIMING:
+            if self._ground_z is None:
+                self._ground_z = self._local_pos.z
             self._publish_ocm(velocity=True)
             self._publish_velocity(0.0, 0.0, 0.0, 0.0)
             self._cycle += 1
@@ -170,14 +205,19 @@ class OffboardController(Node):
             self._publish_velocity(0.0, 0.0, 0.0, 0.0)
 
             if is_armed and in_ob:
-                # Record ground z so takeoff target is relative to spawn point.
-                # NED z is positive-down, so target altitude is negative.
-                self._takeoff_z_ned = self._local_pos.z - self._takeoff_alt
-                self._state = _State.TAKEOFF
-                self.get_logger().info(
-                    f'Armed + OFFBOARD confirmed. '
-                    f'Taking off to {self._takeoff_alt:.1f} m '
-                    f'(NED z target = {self._takeoff_z_ned:.2f} m).')
+                self._takeoff_z_ned = self._ground_z - self._takeoff_alt
+                current_agl = self._ground_z - self._local_pos.z
+                if current_agl >= self._takeoff_alt - self._TAKEOFF_TOL:
+                    self._state = _State.HOLD
+                    self.get_logger().info(
+                        f'Armed + OFFBOARD confirmed. Already at {current_agl:.1f} m AGL '
+                        f'(target {self._takeoff_alt:.1f} m) — entering HOLD.')
+                else:
+                    self._state = _State.TAKEOFF
+                    self.get_logger().info(
+                        f'Armed + OFFBOARD confirmed. '
+                        f'Taking off to {self._takeoff_alt:.1f} m AGL '
+                        f'(NED z target = {self._takeoff_z_ned:.2f} m).')
                 return
 
             if now - self._last_arm_t > 1.0:
@@ -195,7 +235,7 @@ class OffboardController(Node):
             self.get_logger().warn(
                 f'Lost arm or OFFBOARD (armed={is_armed}, offboard={in_ob}) '
                 f'— returning to ARMING.')
-            self._state = _State.ARMING
+            self._state      = _State.ARMING
             self._last_arm_t = 0.0
             self._publish_ocm(velocity=True)
             self._publish_velocity(0.0, 0.0, 0.0, 0.0)
@@ -210,9 +250,7 @@ class OffboardController(Node):
                 self._takeoff_z_ned,
                 yaw=self._local_pos.heading,
             )
-
-            alt_err = abs(self._local_pos.z - self._takeoff_z_ned)
-            if alt_err < self._TAKEOFF_TOL:
+            if abs(self._local_pos.z - self._takeoff_z_ned) < self._TAKEOFF_TOL:
                 self._state = _State.HOLD
                 self.get_logger().info(
                     f'Takeoff complete (z = {self._local_pos.z:.2f} m NED). '
@@ -226,6 +264,8 @@ class OffboardController(Node):
         if has_target:
             if self._state != _State.FOLLOW:
                 self._state = _State.FOLLOW
+                # Reset derivative accumulator on fresh FOLLOW entry to avoid spike.
+                self._prev_dist_err = self._filt[2] - self._follow_dist
                 self.get_logger().info('Target acquired — entering FOLLOW.')
             self._publish_ocm(velocity=True)
             self._follow_target()
@@ -237,32 +277,40 @@ class OffboardController(Node):
             self._publish_velocity(0.0, 0.0, 0.0, 0.0)
 
     # --------------------------------------------------------------------------
-    # Following
+    # Following  (PD on distance, P on altitude, P+deadband on yaw)
     # --------------------------------------------------------------------------
 
     def _follow_target(self):
-        pt      = self._centroid.point
-        heading = self._local_pos.heading   # radians from North, clockwise
+        fc      = self._filt           # EMA-filtered [x, y, z] in camera frame
+        heading = self._local_pos.heading
 
-        # Errors in camera optical frame (x=right, y=down, z=depth/forward)
-        dist_err = pt.z - self._follow_dist   # + = too far  → move forward
-        lat_err  = pt.x                        # + = right    → yaw right
-        alt_err  = pt.y                        # + = below    → descend
+        # --- distance: PD -------------------------------------------------------
+        dist_err      = fc[2] - self._follow_dist
+        dist_err_rate = (dist_err - self._prev_dist_err) / self._LOOP_DT
+        self._prev_dist_err = dist_err
+        body_fwd = _clamp(
+            self._kp_d * dist_err + self._kd_d * dist_err_rate,
+            -self._max_xy, self._max_xy)
 
-        body_fwd   = _clamp(self._kp_d * dist_err,  -self._max_xy, self._max_xy)
-        body_right = _clamp(self._kp_l * lat_err,   -self._max_xy, self._max_xy)
-        body_up    = _clamp(-self._kp_a * alt_err,  -self._max_z,  self._max_z)
-        yaw_rate   = _clamp(self._kp_y * lat_err,   -self._max_yaw, self._max_yaw)
+        # --- lateral: deadband then P (body-right) + P (yaw) -------------------
+        lat_err = fc[0]
+        if abs(lat_err) < self._lat_db:
+            lat_err = 0.0
+        body_right = _clamp(self._kp_l * lat_err, -self._max_xy, self._max_xy)
+        yaw_rate   = _clamp(self._kp_y * lat_err, -self._max_yaw, self._max_yaw)
 
-        # Body → NED rotation using current heading h:
-        #   NED_x = fwd·cos(h) - right·sin(h)
-        #   NED_y = fwd·sin(h) + right·cos(h)
-        #   NED_z = -up  (NED z is positive-down)
+        # --- altitude: P --------------------------------------------------------
+        # Equilibrium: centroid appears height_off metres below camera centre (fc[1] == height_off).
+        # fc[1] > 0 means centroid is below camera; fc[1] - height_off > 0 means drone is too high.
+        alt_err  = fc[1] - self._height_off
+        body_up  = _clamp(-self._kp_a * alt_err, -self._max_z, self._max_z)
+
+        # --- body → NED rotation ------------------------------------------------
         ch, sh = math.cos(heading), math.sin(heading)
         self._publish_velocity(
             body_fwd * ch - body_right * sh,
             body_fwd * sh + body_right * ch,
-            -body_up,
+            -body_up,   # NED z is positive-down
             yaw_rate,
         )
 
@@ -320,7 +368,6 @@ class OffboardController(Node):
         self._cmd_pub.publish(msg)
 
     def _now_us(self) -> int:
-        # PX4 expects Unix wall-clock time in microseconds, not simulation time.
         return int(time.time() * 1e6)
 
 

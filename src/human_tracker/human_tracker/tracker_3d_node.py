@@ -15,7 +15,7 @@ class HumanTracker3DNode(Node):
         super().__init__('human_tracker_3d')
 
         self.declare_parameter('model', 'yolov8n.pt')
-        self.declare_parameter('confidence', 0.5)
+        self.declare_parameter('confidence', 0.3)
         self.declare_parameter('tracker', 'bytetrack.yaml')
         self.declare_parameter('target_id', -1)
         self.declare_parameter('depth_patch_size', 5)
@@ -79,7 +79,7 @@ class HumanTracker3DNode(Node):
         y = (py - cy) * depth_m / fy
         return x, y, depth_m
 
-    def _sample_depth(self, depth_image, cx, cy):
+    def _sample_depth(self, depth_image, cx, cy, encoding):
         h, w = depth_image.shape
         half = self.patch // 2
         x0 = max(0, int(cx) - half)
@@ -87,10 +87,12 @@ class HumanTracker3DNode(Node):
         y0 = max(0, int(cy) - half)
         y1 = min(h, int(cy) + half + 1)
         patch = depth_image[y0:y1, x0:x1].astype(np.float32)
-        valid = patch[patch > 0]
+        valid = patch[(patch > 0) & np.isfinite(patch)]
         if valid.size == 0:
             return None
-        return float(np.median(valid)) * 0.001  # mm → meters
+        raw = float(np.median(valid))
+        # 16UC1 = RealSense hardware (millimetres); 32FC1 = Gazebo simulation (metres)
+        return raw * 0.001 if encoding == '16UC1' else raw
 
     def _image_callback(self, rgb_msg: Image, depth_msg: Image):
         if self.intrinsics is None:
@@ -98,6 +100,7 @@ class HumanTracker3DNode(Node):
 
         frame = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
         depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
+        depth_encoding = depth_msg.encoding
         h, w = frame.shape[:2]
 
         results = self.model.track(
@@ -129,7 +132,7 @@ class HumanTracker3DNode(Node):
                 cx = (x1 + x2) / 2.0
                 cy = (y1 + y2) / 2.0
 
-                depth_m = self._sample_depth(depth, cx, cy)
+                depth_m = self._sample_depth(depth, cx, cy, depth_encoding)
                 if depth_m is None or depth_m <= 0:
                     X, Y, Z = None, None, None
                 else:
