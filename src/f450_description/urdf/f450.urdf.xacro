@@ -247,11 +247,25 @@
        Camera link centre:   x≈0.083, z=-0.010 from base_link
        ================================================================ -->
 
-  <!-- Mount dimensions (small bracket) -->
-  <xacro:property name="cam_mnt_x"  value="0.020"/>
-  <xacro:property name="cam_mnt_y"  value="0.040"/>
-  <xacro:property name="cam_mnt_z"  value="0.030"/>
-  <xacro:property name="cam_mnt_m"  value="0.005"/>
+  <!-- Mount bracket (physical envelope of the case) -->
+  <xacro:property name="cam_mnt_m"  value="0.005"/>  <!-- 5 g plastic -->
+
+  <!-- case_intel_realsense_d435.stl bounds: 80×49×33 mm.
+       Visual is rendered with scale=0.001 and rpy="0 0 1.5708" (Rz +90°),
+       which swaps the STL x/y axes in the link frame:
+         fore-aft (link-X) ← STL-Y = 49 mm  → 0.049 m
+         lateral  (link-Y) ← STL-X = 80 mm  → 0.080 m
+         vertical (link-Z) ← STL-Z = 33 mm  → 0.033 m
+       STL centroid (4.5, -13, 26) mm, after Rz and visual xyz offset (0.01, 0, -0.02):
+         cx = (-(-0.013))      + 0.010 = 0.023 m
+         cy = (  0.0045)       + 0.000 = 0.005 m
+         cz = (  0.026)        - 0.020 = 0.006 m  -->
+  <xacro:property name="cam_case_cx" value="0.023"/>
+  <xacro:property name="cam_case_cy" value="0.005"/>
+  <xacro:property name="cam_case_cz" value="0.006"/>
+  <xacro:property name="cam_case_dx" value="0.049"/>
+  <xacro:property name="cam_case_dy" value="0.080"/>
+  <xacro:property name="cam_case_dz" value="0.033"/>
 
   <!-- D435i physical dimensions -->
   <xacro:property name="d435i_x"    value="0.025"/>
@@ -265,18 +279,19 @@
   <link name="camera_mount">
     <inertial>
       <mass value="${cam_mnt_m}"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <xacro:box_inertia m="${cam_mnt_m}" x="${cam_mnt_x}" y="${cam_mnt_y}" z="${cam_mnt_z}"/>
+      <!-- COM at actual mesh centroid in link frame (see cam_case_c* properties above) -->
+      <origin xyz="${cam_case_cx} ${cam_case_cy} ${cam_case_cz}" rpy="0 0 0"/>
+      <xacro:box_inertia m="${cam_mnt_m}" x="${cam_case_dx}" y="${cam_case_dy}" z="${cam_case_dz}"/>
     </inertial>
     <visual>
       <origin xyz="0.01 0 -0.02" rpy="0 0 1.5708"/>
       <geometry><mesh filename="${mesh_case}" scale="${mesh_scale}"/></geometry>
       <material name="dark_gray"/>
     </visual>
-    <!-- Collision stays as the original box primitive -->
+    <!-- Collision box centred on the actual mesh COM -->
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><box size="${cam_mnt_x} ${cam_mnt_y} ${cam_mnt_z}"/></geometry>
+      <origin xyz="${cam_case_cx} ${cam_case_cy} ${cam_case_cz}" rpy="0 0 0"/>
+      <geometry><box size="${cam_case_dx} ${cam_case_dy} ${cam_case_dz}"/></geometry>
     </collision>
   </link>
 
@@ -295,9 +310,11 @@
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <xacro:box_inertia m="${d435i_mass}" x="${d435i_x}" y="${d435i_y}" z="${d435i_z}"/>
     </inertial>
+    <!-- camera.STL is exported in METRES (bounding box ≈ 90×25×25 mm = 0.090×0.025×0.025 m).
+         All other meshes are in mm and use mesh_scale=0.001; this one must use 1 1 1. -->
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><mesh filename="${mesh_camera}" scale="${mesh_scale}"/></geometry>
+      <origin xyz="0.009 -0.006 -0.005" rpy="-1.5708 0 -1.5708"/>
+      <geometry><mesh filename="${mesh_camera}" scale="1 1 1"/></geometry>
       <material name="dark_gray"/>
     </visual>
     <!-- Collision stays as the original box primitive -->
@@ -307,10 +324,11 @@
     </collision>
   </link>
 
+  <!-- Camera body sits inside the case; centre it on the case mesh centroid. -->
   <joint name="camera_mount_to_camera" type="fixed">
     <parent link="camera_mount"/>
     <child link="camera_link"/>
-    <origin xyz="${cam_mnt_x/2 + d435i_x/2} 0 0" rpy="0 0 0"/>
+    <origin xyz="${cam_case_cx} ${cam_case_cy} ${cam_case_cz}" rpy="0 0 0"/>
   </joint>
 
   <!-- Optical frames  (ROS camera convention: z=into-scene, x=right, y=down)
