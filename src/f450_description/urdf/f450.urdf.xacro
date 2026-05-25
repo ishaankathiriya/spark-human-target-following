@@ -26,8 +26,12 @@
   <xacro:property name="mesh_arm"    value="${mesh_base}/arm.stl"/>
   <xacro:property name="mesh_motor"  value="${mesh_base}/motor.stl"/>
   <xacro:property name="mesh_prop"   value="${mesh_base}/propeller.stl"/>
-  <xacro:property name="mesh_camera" value="${mesh_base}/camera.STL"/>
-  <xacro:property name="mesh_case"   value="${mesh_base}/case_intel_realsense_d435.stl"/>
+  <xacro:property name="mesh_camera"   value="${mesh_base}/camera.STL"/>
+  <xacro:property name="mesh_case"     value="${mesh_base}/case_intel_realsense_d435.stl"/>
+  <xacro:property name="mesh_pixhawk"  value="${mesh_base}/pixhawk.STL"/>
+  <xacro:property name="mesh_jetson"   value="${mesh_base}/jetson_orin_nano.stl"/>
+  <xacro:property name="mesh_standoff" value="${mesh_base}/standoff.stl"/>
+  <xacro:property name="mesh_gps"      value="${mesh_base}/gps.stl"/>
 
   <!-- SolidWorks exports STL in mm; URDF expects metres → scale = 0.001.
        If meshes appear the wrong size, flip this to "1 1 1". -->
@@ -96,6 +100,8 @@
   <material name="red">       <color rgba="0.85 0.08 0.08 1"/> </material>
   <material name="black">     <color rgba="0.10 0.10 0.10 1"/> </material>
   <material name="dark_gray"> <color rgba="0.22 0.22 0.22 1"/> </material>
+  <material name="silver">    <color rgba="0.75 0.75 0.75 1"/> </material>
+  <material name="green">     <color rgba="0.13 0.37 0.13 1"/> </material>
 
 
   <!-- ================================================================
@@ -354,6 +360,308 @@
     <child link="camera_imu_frame"/>
     <origin xyz="-0.020 0.005 0" rpy="0 0 0"/>
   </joint>
+
+
+  <!-- ================================================================
+       BODY STACK: Pixhawk 2.4.8 → Standoffs → Upper Deck → Jetson
+       Z reference from base_link origin:
+         Top plate surface    : z = +0.013 m
+         Pixhawk top face     : z = +0.013 + 0.016 = +0.029 m
+         Standoff top / plate : z = +0.013 + 0.020 = +0.033 m
+         Clearance above PX4  : 4 mm  (very tight — increase standoff_h if needed)
+       ================================================================ -->
+
+  <!-- Pixhawk 2.4.8 flight controller — dims from STL bounding box -->
+  <xacro:property name="px4_x"          value="0.082"/>   <!-- STL Z span: 82 mm (length, fore-aft) -->
+  <xacro:property name="px4_y"          value="0.050"/>   <!-- STL X span: 49.7 mm → 50 mm (width) -->
+  <xacro:property name="px4_z"          value="0.016"/>   <!-- STL Y span: 16 mm (height) -->
+  <xacro:property name="px4_mass"       value="0.038"/>   <!-- 38 g -->
+
+  <!-- Aluminium M3 hex standoffs — dims from STL bounding box.
+       Physical standoff height may differ; update standoff_h if so. -->
+  <xacro:property name="standoff_r"      value="0.00346"/> <!-- circumscribed hex radius (3.464 mm) -->
+  <xacro:property name="standoff_h"      value="0.020"/>   <!-- STL Z span: 20 mm height -->
+  <!-- Standoffs placed at corners of a 80×80 mm square on the top plate -->
+  <xacro:property name="standoff_spread" value="0.040"/>   <!-- ±40 mm from drone centre -->
+  <!-- Mass: Al hex, V≈(3√3/2)×3.464²×20≈623 mm³ × 2.7 g/cm³ ≈ 1.7 g each → ~7 g total -->
+  <xacro:property name="standoff_m_each" value="0.0017"/>
+
+  <!-- Upper deck plate: same mesh as top plate, 50 g estimate -->
+  <xacro:property name="plate2_mass"    value="0.050"/>
+  <xacro:property name="plate2_t"       value="0.003"/>   <!-- 3 mm thickness -->
+
+  <!-- ── Pixhawk 2.4.8 ─────────────────────────────────────────── -->
+  <!-- STL axes: X=width(50mm), Y=height(16mm), Z=length(82mm).
+       Rotation rpy="1.5708 0 1.5708" (Rz·Rx = [[0,0,1],[1,0,0],[0,1,0]]):
+         body_X ← STL_Z (82mm, fore-aft), body_Y ← STL_X (50mm, lateral), body_Z ← STL_Y (16mm, up).
+       xyz=(-0.041, -0.025, 0) centres the mesh in X/Y and places its base at z=0 (top plate surface). -->
+  <link name="pixhawk_link">
+    <inertial>
+      <mass value="${px4_mass}"/>
+      <origin xyz="0 0 ${px4_z/2}" rpy="0 0 0"/>
+      <xacro:box_inertia m="${px4_mass}" x="${px4_x}" y="${px4_y}" z="${px4_z}"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.041 -0.025 0" rpy="1.5708 0 1.5708"/>
+      <geometry><mesh filename="${mesh_pixhawk}" scale="${mesh_scale}"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${px4_z/2}" rpy="0 0 0"/>
+      <geometry><box size="${px4_x} ${px4_y} ${px4_z}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Bottom face of Pixhawk rests on top plate surface -->
+  <joint name="body_to_pixhawk" type="fixed">
+    <parent link="base_link"/>
+    <child link="pixhawk_link"/>
+    <origin xyz="0 0 0.013" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ── Aluminium standoffs (4×, single link, 4 cylinder visuals) ─ -->
+  <link name="standoff_assembly">
+    <inertial>
+      <mass value="${4 * standoff_m_each}"/>
+      <!-- COM at mid-height of the 4-standoff cluster -->
+      <origin xyz="0 0 ${standoff_h/2}" rpy="0 0 0"/>
+      <!-- Box approximation spanning the full standoff footprint for inertia -->
+      <xacro:box_inertia m="${4 * standoff_m_each}"
+                          x="${2 * standoff_spread}"
+                          y="${2 * standoff_spread}"
+                          z="${standoff_h}"/>
+    </inertial>
+    <!-- STL origin is at the standoff base centre, Z runs 0→20mm up. No z-offset needed.
+         Place each copy at the four corner positions (±40mm from drone centre). -->
+    <!-- Front-left -->
+    <visual name="standoff_fl">
+      <origin xyz="${standoff_spread} ${standoff_spread} 0" rpy="0 0 0"/>
+      <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <!-- Front-right -->
+    <visual name="standoff_fr">
+      <origin xyz="${standoff_spread} ${-standoff_spread} 0" rpy="0 0 0"/>
+      <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <!-- Rear-left -->
+    <visual name="standoff_rl">
+      <origin xyz="${-standoff_spread} ${standoff_spread} 0" rpy="0 0 0"/>
+      <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <!-- Rear-right -->
+    <visual name="standoff_rr">
+      <origin xyz="${-standoff_spread} ${-standoff_spread} 0" rpy="0 0 0"/>
+      <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <!-- Collision: one box enclosing the 4 standoffs (self-collision is off by default) -->
+    <collision>
+      <origin xyz="0 0 ${standoff_h/2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${2*standoff_spread} ${2*standoff_spread} ${standoff_h}"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Standoffs also start at the top plate surface -->
+  <joint name="body_to_standoffs" type="fixed">
+    <parent link="base_link"/>
+    <child link="standoff_assembly"/>
+    <origin xyz="0 0 0.013" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ── Upper deck plate (reuses top_plate mesh) ──────────────── -->
+  <link name="second_plate_link">
+    <inertial>
+      <mass value="${plate2_mass}"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <xacro:box_inertia m="${plate2_mass}" x="${body_xy}" y="${body_xy}" z="${plate2_t}"/>
+    </inertial>
+    <!-- Same mesh and orientation as the main top plate; link origin is at plate centre -->
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="${mesh_top}" scale="${mesh_scale}"/></geometry>
+      <material name="red"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${body_xy} ${body_xy} ${plate2_t}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Top plate surface + full standoff height -->
+  <joint name="body_to_second_plate" type="fixed">
+    <parent link="base_link"/>
+    <child link="second_plate_link"/>
+    <origin xyz="0 0 ${0.013 + standoff_h}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ── Jetson Orin Nano Developer Kit ────────────────────────── -->
+  <!-- STL bounding box (includes heatsink + connectors): 103 × 91 × 35 mm
+       STL centroid: (46, 26.6, 12.5) mm; base (min-Z) at −4.9 mm.
+       xyz=(-0.046, -0.027, 0.005) centres the mesh in X/Y and places its base at z=0
+       (top surface of second_plate_link), rpy=(0,0,0) — already flat with Z up. -->
+  <xacro:property name="jetson_x"    value="0.103"/>   <!-- STL X span -->
+  <xacro:property name="jetson_y"    value="0.091"/>   <!-- STL Y span -->
+  <xacro:property name="jetson_z"    value="0.035"/>   <!-- STL Z span -->
+  <xacro:property name="jetson_mass" value="0.175"/>
+
+  <link name="jetson_link">
+    <inertial>
+      <mass value="${jetson_mass}"/>
+      <origin xyz="0 0 ${jetson_z/2}" rpy="0 0 0"/>
+      <xacro:box_inertia m="${jetson_mass}" x="${jetson_x}" y="${jetson_y}" z="${jetson_z}"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.046 -0.027 0.005" rpy="0 0 0"/>
+      <geometry><mesh filename="${mesh_jetson}" scale="${mesh_scale}"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${jetson_z/2}" rpy="0 0 0"/>
+      <geometry><box size="${jetson_x} ${jetson_y} ${jetson_z}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Joint origin at top surface of second plate (plate2_t/2 above link origin) -->
+  <joint name="second_plate_to_jetson" type="fixed">
+    <parent link="second_plate_link"/>
+    <child link="jetson_link"/>
+    <origin xyz="0 0 ${plate2_t/2}" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- ================================================================
+       BATTERY: Gen X Power 3300 mAh 4S LiPo, 14.8 V
+       Mounted under the bottom plate (bottom plate surface: z = −0.025 m).
+       Dimensions ESTIMATED from comparable 3300 mAh 4S packs —
+       update batt_x/y/z/mass once you measure the physical battery.
+       Long axis (138 mm) runs fore-aft (+X) to minimise CG shift.
+       ================================================================ -->
+  <xacro:property name="batt_x"    value="0.138"/>   <!-- 138 mm fore-aft (ESTIMATED) -->
+  <xacro:property name="batt_y"    value="0.042"/>   <!-- 42 mm lateral   (ESTIMATED) -->
+  <xacro:property name="batt_z"    value="0.028"/>   <!-- 28 mm height    (ESTIMATED) -->
+  <xacro:property name="batt_mass" value="0.350"/>   <!-- 350 g           (ESTIMATED) -->
+
+  <link name="battery_link">
+    <inertial>
+      <mass value="${batt_mass}"/>
+      <!-- COM at geometric centre, which is batt_z/2 below the bottom plate surface -->
+      <origin xyz="0 0 ${-batt_z/2}" rpy="0 0 0"/>
+      <xacro:box_inertia m="${batt_mass}" x="${batt_x}" y="${batt_y}" z="${batt_z}"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 ${-batt_z/2}" rpy="0 0 0"/>
+      <geometry><box size="${batt_x} ${batt_y} ${batt_z}"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${-batt_z/2}" rpy="0 0 0"/>
+      <geometry><box size="${batt_x} ${batt_y} ${batt_z}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Joint at bottom plate surface; battery link origin here, block hangs below -->
+  <joint name="body_to_battery" type="fixed">
+    <parent link="base_link"/>
+    <child link="battery_link"/>
+    <origin xyz="0 0 -0.025" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- ================================================================
+       GPS: Holybro M8N (most common Pixhawk 2.4.8 pairing)
+         ∅50 mm disc × 14 mm tall, 32 g
+       Mounted on TOP of the front-left arm beam, disc facing up (+Z),
+       80 mm from the arm joint along the arm axis — just past the body
+       frame edge so the antenna has a clear sky view.
+       X position is a PLACEHOLDER; adjust once physically mounted.
+       ================================================================ -->
+  <xacro:property name="gps_r"    value="0.025"/>   <!-- 25 mm radius -->
+  <xacro:property name="gps_h"    value="0.014"/>   <!-- 14 mm height -->
+  <xacro:property name="gps_mass" value="0.032"/>   <!-- 32 g -->
+
+  <!-- STL axes: disc diameter in X (±25mm) and Z (±25mm); height in Y (−6→8.3mm).
+       Rotation rpy="1.5708 0 0" (Rx+90°): body_X←STL_X, body_Y←−STL_Z, body_Z←STL_Y.
+       Result: disc horizontal in body XY, height in body Z.
+       xyz=(0, 0, 0.006) places disc bottom (STL_Y=−6mm) at z=0 (arm top surface).
+       Collision uses cylinder primitive — STL includes a cable stub that would inflate the box. -->
+  <link name="gps_link">
+    <inertial>
+      <mass value="${gps_mass}"/>
+      <origin xyz="0 0 ${gps_h/2}" rpy="0 0 0"/>
+      <xacro:cylinder_inertia m="${gps_mass}" r="${gps_r}" l="${gps_h}"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.006" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="${mesh_gps}" scale="${mesh_scale}"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${gps_h/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${gps_r}" length="${gps_h}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Joint origin = bottom-centre of GPS disc in arm frame.
+       x = 0.090 m along arm axis (clears body edge; user-tuned).
+       z = arm_height/2 so the disc sits flush on the arm beam top surface. -->
+  <joint name="arm_fl_to_gps" type="fixed">
+    <parent link="arm_front_left"/>
+    <child link="gps_link"/>
+    <origin xyz="0.090 0 ${arm_height/2}" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- ================================================================
+       ESCs: Hobbywing XRotor 20A (4×, one per arm)
+         52 × 22 × 7 mm, 14 g each
+       Mounted on the UNDERSIDE of each arm beam.
+       esc_pos_x is a PLACEHOLDER — tune once the ESCs are physically
+       strapped to the arms.
+       ================================================================ -->
+  <xacro:property name="esc_x"     value="0.052"/>   <!-- 52 mm along arm axis -->
+  <xacro:property name="esc_y"     value="0.022"/>   <!-- 22 mm lateral -->
+  <xacro:property name="esc_z"     value="0.007"/>   <!-- 7 mm thick -->
+  <xacro:property name="esc_mass"  value="0.014"/>   <!-- 14 g -->
+  <!-- Distance from arm joint to ESC centre along arm axis (PLACEHOLDER) -->
+  <xacro:property name="esc_pos_x" value="0.150"/>
+
+  <!-- Macro: one ESC link + joint, parameterised by arm prefix -->
+  <xacro:macro name="esc_assembly" params="prefix">
+    <link name="esc_${prefix}">
+      <inertial>
+        <mass value="${esc_mass}"/>
+        <!-- COM at geometric centre of the ESC block, below joint origin -->
+        <origin xyz="0 0 ${-esc_z/2}" rpy="0 0 0"/>
+        <xacro:box_inertia m="${esc_mass}" x="${esc_x}" y="${esc_y}" z="${esc_z}"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 ${-esc_z/2}" rpy="0 0 0"/>
+        <geometry><box size="${esc_x} ${esc_y} ${esc_z}"/></geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${-esc_z/2}" rpy="0 0 0"/>
+        <geometry><box size="${esc_x} ${esc_y} ${esc_z}"/></geometry>
+      </collision>
+    </link>
+
+    <!-- Joint at bottom surface of arm beam; ESC block hangs below -->
+    <joint name="arm_to_esc_${prefix}" type="fixed">
+      <parent link="arm_${prefix}"/>
+      <child link="esc_${prefix}"/>
+      <origin xyz="${esc_pos_x} 0 ${-arm_height/2}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:esc_assembly prefix="front_right"/>
+  <xacro:esc_assembly prefix="front_left"/>
+  <xacro:esc_assembly prefix="rear_left"/>
+  <xacro:esc_assembly prefix="rear_right"/>
 
 
 </robot>
