@@ -573,13 +573,50 @@
 
 
   <!-- ================================================================
-       GPS: Holybro M8N (most common Pixhawk 2.4.8 pairing)
+       GPS: Holybro M8N
          ∅50 mm disc × 14 mm tall, 32 g
-       Mounted on TOP of the front-left arm beam, disc facing up (+Z),
-       80 mm from the arm joint along the arm axis — just past the body
-       frame edge so the antenna has a clear sky view.
-       X position is a PLACEHOLDER; adjust once physically mounted.
+       Mounted on an aluminium standoff mast that bolts through the rear-left
+       M3 hole of the F450 top plate and the topmost plate, rising 10 mm
+       above the topmost plate (second_plate_link at z=+0.033 m).
+
+       Hole verified from STL: upper rear-left hole at STL (−31.72, −46.22) mm
+         → URDF base_link frame (−0.032, +0.046) m, diameter ≈ 3.27 mm.
+       Standoff r = 3 mm fits through the hole; height = 70 mm spans from
+       (top plate surface z=0.013 m) to 13 mm above the Jetson top (z≈0.070 m).
        ================================================================ -->
+
+  <!-- GPS standoff mast — same aluminium hex type as frame standoffs -->
+  <xacro:property name="gps_mast_r"    value="0.003"/>   <!-- 3 mm radius (M3 hex standoff) -->
+  <xacro:property name="gps_mast_h"    value="0.070"/>   <!-- 70 mm: clears Jetson top (z≈0.070 m) by ~13 mm -->
+  <xacro:property name="gps_mast_x"    value="-0.032"/>  <!-- rear-left hole X in base_link frame -->
+  <xacro:property name="gps_mast_y"    value="0.046"/>   <!-- rear-left hole Y in base_link frame -->
+  <xacro:property name="gps_mast_mass" value="0.002"/>   <!-- 2 g estimate -->
+
+  <link name="gps_mast_link">
+    <inertial>
+      <mass value="${gps_mast_mass}"/>
+      <origin xyz="0 0 ${gps_mast_h/2}" rpy="0 0 0"/>
+      <xacro:cylinder_inertia m="${gps_mast_mass}" r="${gps_mast_r}" l="${gps_mast_h}"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 ${gps_mast_h/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${gps_mast_r}" length="${gps_mast_h}"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${gps_mast_h/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${gps_mast_r}" length="${gps_mast_h}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Mast base sits on the F450 top plate surface (z = 0.013 m in base_link frame) -->
+  <joint name="base_to_gps_mast" type="fixed">
+    <parent link="base_link"/>
+    <child link="gps_mast_link"/>
+    <origin xyz="${gps_mast_x} ${gps_mast_y + 0.0038} 0.013" rpy="0 0 -1.5708"/>
+  </joint>
+
+  <!-- GPS disc -->
   <xacro:property name="gps_r"    value="0.025"/>   <!-- 25 mm radius -->
   <xacro:property name="gps_h"    value="0.014"/>   <!-- 14 mm height -->
   <xacro:property name="gps_mass" value="0.032"/>   <!-- 32 g -->
@@ -587,8 +624,8 @@
   <!-- STL axes: disc diameter in X (±25mm) and Z (±25mm); height in Y (−6→8.3mm).
        Rotation rpy="1.5708 0 0" (Rx+90°): body_X←STL_X, body_Y←−STL_Z, body_Z←STL_Y.
        Result: disc horizontal in body XY, height in body Z.
-       xyz=(0, 0, 0.006) places disc bottom (STL_Y=−6mm) at z=0 (arm top surface).
-       Collision uses cylinder primitive — STL includes a cable stub that would inflate the box. -->
+       xyz=(0, 0, 0.006) places disc bottom (STL_Y=−6mm) at z=0 (mast top surface).
+       Collision uses cylinder primitive — STL includes a cable stub. -->
   <link name="gps_link">
     <inertial>
       <mass value="${gps_mass}"/>
@@ -606,13 +643,11 @@
     </collision>
   </link>
 
-  <!-- Joint origin = bottom-centre of GPS disc in arm frame.
-       x = 0.090 m along arm axis (clears body edge; user-tuned).
-       z = arm_height/2 so the disc sits flush on the arm beam top surface. -->
-  <joint name="bottom_plate_to_gps" type="fixed">
-    <parent link="base_link"/>
+  <!-- GPS disc sits at the top of the mast -->
+  <joint name="gps_mast_to_gps" type="fixed">
+    <parent link="gps_mast_link"/>
     <child link="gps_link"/>
-    <origin xyz="-0.065 0 -0.025" rpy="0 0 1.5708"/>
+    <origin xyz="0 0 ${gps_mast_h}" rpy="0 0 0"/>
   </joint>
 
 
