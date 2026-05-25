@@ -609,10 +609,10 @@
   <!-- Joint origin = bottom-centre of GPS disc in arm frame.
        x = 0.090 m along arm axis (clears body edge; user-tuned).
        z = arm_height/2 so the disc sits flush on the arm beam top surface. -->
-  <joint name="arm_fl_to_gps" type="fixed">
-    <parent link="arm_front_left"/>
+  <joint name="bottom_plate_to_gps" type="fixed">
+    <parent link="base_link"/>
     <child link="gps_link"/>
-    <origin xyz="0.090 0 ${arm_height/2}" rpy="0 0 0"/>
+    <origin xyz="-0.065 0 -0.025" rpy="0 0 1.5708"/>
   </joint>
 
 
