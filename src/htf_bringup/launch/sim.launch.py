@@ -72,6 +72,23 @@ def generate_launch_description():
     )
 
     # ------------------------------------------------------------------
+    # 2b. joint_state_publisher
+    #     Publishes zero joint states for the 4 continuous rotor joints.
+    #     robot_state_publisher cannot resolve non-fixed joints without a
+    #     /joint_states message — without this, RViz reports
+    #     "No transform from [rotor_*] to [base_link]".
+    #     Rotors appear stationary in RViz (acceptable: they spin at
+    #     ~6000 RPM so animation adds no useful information).
+    # ------------------------------------------------------------------
+    jsp = Node(
+        package='joint_state_publisher',
+        executable='joint_state_publisher',
+        name='joint_state_publisher',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+    )
+
+    # ------------------------------------------------------------------
     # 3. ros_gz_bridge
     #    Bridges Gazebo simulation topics (camera feed, clock) to ROS 2.
     #    Config file lists every bridged topic so this file stays clean.
@@ -91,5 +108,6 @@ def generate_launch_description():
         kill_old_agent,
         xrce_agent,
         rsp,
+        jsp,
         gz_bridge,
     ])

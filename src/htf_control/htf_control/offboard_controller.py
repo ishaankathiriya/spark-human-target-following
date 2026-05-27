@@ -8,7 +8,7 @@ State machine:
   PRIMING : stream zero-velocity setpoints for ~0.4 s so PX4 accepts OFFBOARD
   ARMING  : retry arm + OFFBOARD every 1 s until both confirmed
   TAKEOFF : position-mode climb to target altitude; auto-transitions when close
-  HOLD    : velocity-mode hover (zero vel) when no target visible
+  HOLD    : position-mode hold at the latched NED position (no drift)
   FOLLOW  : PD velocity-mode tracking when /tracker/centroid_3d is fresh
 
 Control architecture (FOLLOW state):
@@ -31,6 +31,7 @@ Topics produced:
 """
 
 import math
+import signal
 import time
 from enum import IntEnum
 
@@ -69,6 +70,14 @@ _PX4_SUB_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
+
+_ARMING_STATE_NAMES = {
+    0: 'INIT',
+    1: 'STANDBY',
+    2: 'ARMED',
+    3: 'STANDBY_ERROR',
+    6: 'SHUTDOWN',
+}
 
 
 class OffboardController(Node):
@@ -145,7 +154,14 @@ class OffboardController(Node):
         self._last_arm_t     = 0.0
         self._ground_z       = None   # NED z latched on first PRIMING cycle
         self._takeoff_z_ned  = None
+        self._takeoff_x      = None   # latched NED x/y when TAKEOFF begins
+        self._takeoff_y      = None
+        self._hold_x         = None   # latched NED position for HOLD mode
+        self._hold_y         = None
+        self._hold_z         = None
+        self._hold_yaw       = None
         self._state          = _State.PRIMING
+        self._prev_arm_state = -1     # for change-detection logging
 
         # EMA-filtered centroid [x, y, z] in camera optical frame (metres)
         self._filt           = None
@@ -187,6 +203,13 @@ class OffboardController(Node):
         is_armed = self._vehicle_status.arming_state == VehicleStatus.ARMING_STATE_ARMED
         in_ob    = self._vehicle_status.nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD
 
+        # Log arming_state changes so the user can see what PX4 is waiting for
+        arm_state = self._vehicle_status.arming_state
+        if arm_state != self._prev_arm_state:
+            name = _ARMING_STATE_NAMES.get(arm_state, str(arm_state))
+            self.get_logger().info(f'PX4 arming_state changed → {name} ({arm_state})')
+            self._prev_arm_state = arm_state
+
         # ── PRIMING ───────────────────────────────────────────────────────────
         if self._state == _State.PRIMING:
             if self._ground_z is None:
@@ -208,26 +231,30 @@ class OffboardController(Node):
                 self._takeoff_z_ned = self._ground_z - self._takeoff_alt
                 current_agl = self._ground_z - self._local_pos.z
                 if current_agl >= self._takeoff_alt - self._TAKEOFF_TOL:
-                    self._state = _State.HOLD
+                    self._enter_hold('already at target altitude')
                     self.get_logger().info(
-                        f'Armed + OFFBOARD confirmed. Already at {current_agl:.1f} m AGL '
-                        f'(target {self._takeoff_alt:.1f} m) — entering HOLD.')
+                        f'Already at {current_agl:.1f} m AGL (target {self._takeoff_alt:.1f} m).')
                 else:
+                    # Latch takeoff x/y so the position setpoint doesn't chase
+                    # a noisy local_pos during the climb.
+                    self._takeoff_x = self._local_pos.x
+                    self._takeoff_y = self._local_pos.y
                     self._state = _State.TAKEOFF
                     self.get_logger().info(
-                        f'Armed + OFFBOARD confirmed. '
-                        f'Taking off to {self._takeoff_alt:.1f} m AGL '
-                        f'(NED z target = {self._takeoff_z_ned:.2f} m).')
+                        f'Armed + OFFBOARD. Taking off to {self._takeoff_alt:.1f} m AGL '
+                        f'(NED z = {self._takeoff_z_ned:.2f} m).')
                 return
 
             if now - self._last_arm_t > 1.0:
                 self._last_arm_t = now
+                arm_name = _ARMING_STATE_NAMES.get(arm_state, str(arm_state))
+                self.get_logger().info(
+                    f'Arm attempt — PX4 state: {arm_name}, nav: {self._vehicle_status.nav_state}, '
+                    f'armed={is_armed}, offboard={in_ob}')
                 self._send_vehicle_command(
                     VehicleCommand.VEHICLE_CMD_DO_SET_MODE, param1=1.0, param2=6.0)
                 self._send_vehicle_command(
                     VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, param1=1.0)
-                self.get_logger().info(
-                    f'Sending arm + OFFBOARD (armed={is_armed}, offboard={in_ob})')
             return
 
         # ── Lost arm or OFFBOARD mid-flight ───────────────────────────────────
@@ -245,16 +272,15 @@ class OffboardController(Node):
         if self._state == _State.TAKEOFF:
             self._publish_ocm(position=True)
             self._publish_position(
-                self._local_pos.x,
-                self._local_pos.y,
+                self._takeoff_x,
+                self._takeoff_y,
                 self._takeoff_z_ned,
                 yaw=self._local_pos.heading,
             )
             if abs(self._local_pos.z - self._takeoff_z_ned) < self._TAKEOFF_TOL:
-                self._state = _State.HOLD
+                self._enter_hold('takeoff complete')
                 self.get_logger().info(
-                    f'Takeoff complete (z = {self._local_pos.z:.2f} m NED). '
-                    f'Entering HOLD.')
+                    f'Takeoff complete (NED z = {self._local_pos.z:.2f} m).')
             return
 
         # ── HOLD / FOLLOW ─────────────────────────────────────────────────────
@@ -271,10 +297,28 @@ class OffboardController(Node):
             self._follow_target()
         else:
             if self._state != _State.HOLD:
-                self._state = _State.HOLD
-                self.get_logger().info('Target lost — entering HOLD.')
-            self._publish_ocm(velocity=True)
-            self._publish_velocity(0.0, 0.0, 0.0, 0.0)
+                self._enter_hold('target lost')
+            # Position-mode hold: PX4 actively maintains the latched NED position.
+            self._publish_ocm(position=True)
+            self._publish_position(self._hold_x, self._hold_y, self._hold_z,
+                                   yaw=self._hold_yaw)
+
+    # --------------------------------------------------------------------------
+    # State helpers
+    # --------------------------------------------------------------------------
+
+    def _enter_hold(self, reason: str = ''):
+        """Latch current NED position and switch to HOLD."""
+        self._hold_x   = self._local_pos.x
+        self._hold_y   = self._local_pos.y
+        self._hold_z   = self._local_pos.z
+        self._hold_yaw = self._local_pos.heading
+        self._state    = _State.HOLD
+        tag = f' ({reason})' if reason else ''
+        self.get_logger().info(
+            f'Entering HOLD{tag} — holding NED '
+            f'({self._hold_x:.2f}, {self._hold_y:.2f}, {self._hold_z:.2f}), '
+            f'yaw={math.degrees(self._hold_yaw):.1f}°')
 
     # --------------------------------------------------------------------------
     # Following  (PD on distance, P on altitude, P+deadband on yaw)
@@ -349,7 +393,7 @@ class OffboardController(Node):
         msg.velocity     = [nan, nan, nan]
         msg.acceleration = [nan, nan, nan]
         msg.jerk         = [nan, nan, nan]
-        msg.yaw          = float(yaw)
+        msg.yaw          = float(yaw) if not math.isnan(yaw) else nan
         msg.yawspeed     = nan
         msg.timestamp    = self._now_us()
         self._sp_pub.publish(msg)
@@ -367,6 +411,11 @@ class OffboardController(Node):
         msg.timestamp        = self._now_us()
         self._cmd_pub.publish(msg)
 
+    def send_land_command(self):
+        """Send LAND command — safe to call from main thread on shutdown."""
+        self.get_logger().warn('Sending LAND command to PX4.')
+        self._send_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+
     def _now_us(self) -> int:
         return int(time.time() * 1e6)
 
@@ -378,11 +427,21 @@ def _clamp(v, lo, hi):
 def main(args=None):
     rclpy.init(args=args)
     node = OffboardController()
+
+    # Convert SIGTERM (ros2 launch shutdown / `kill PID`) into SystemExit so
+    # the finally block runs and the LAND command is sent before the process dies.
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(SystemExit(0)))
+
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        node.send_land_command()
+        # Spin briefly so the DDS publisher can flush the LAND message.
+        deadline = time.monotonic() + 0.8
+        while time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.05)
         node.destroy_node()
         rclpy.shutdown()
 
