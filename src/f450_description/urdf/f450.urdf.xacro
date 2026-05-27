@@ -17,6 +17,9 @@
 -->
 <robot name="dji_f450" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <!-- Official RealSense D435i description (installed system-wide) -->
+  <xacro:include filename="$(find realsense2_description)/urdf/_d435i.urdf.xacro"/>
+
   <!-- ================================================================
        MESH PATHS
        ================================================================ -->
@@ -26,7 +29,6 @@
   <xacro:property name="mesh_arm"    value="${mesh_base}/arm.stl"/>
   <xacro:property name="mesh_motor"  value="${mesh_base}/motor.stl"/>
   <xacro:property name="mesh_prop"   value="${mesh_base}/propeller.stl"/>
-  <xacro:property name="mesh_camera"   value="${mesh_base}/camera.STL"/>
   <xacro:property name="mesh_case"     value="${mesh_base}/d435_mount_2.stl"/>
   <xacro:property name="mesh_pixhawk"  value="${mesh_base}/pixhawk.STL"/>
   <xacro:property name="mesh_jetson"   value="${mesh_base}/jetson_orin_nano.stl"/>
@@ -273,11 +275,6 @@
   <xacro:property name="cam_case_dy" value="0.080"/>
   <xacro:property name="cam_case_dz" value="0.033"/>
 
-  <!-- D435i physical dimensions -->
-  <xacro:property name="d435i_x"    value="0.025"/>
-  <xacro:property name="d435i_y"    value="0.090"/>
-  <xacro:property name="d435i_z"    value="0.025"/>
-  <xacro:property name="d435i_mass" value="0.072"/>
 
   <!-- Camera mount / case — STL mesh replacing the placeholder box.
        rpy and xyz here are initial guesses; tune in RViz until the case
@@ -307,59 +304,17 @@
     <origin xyz="0.0855 0.000 -0.0155" rpy="0 0 0"/>
   </joint>
 
-  <!-- D435i camera body.
-       camera.STL is in METRES (bounding box 90×25×25 mm), so scale="1 1 1".
-       Visual origin tuned by user: xyz="0.009 -0.006 -0.005" rpy="-1.5708 0 -1.5708".
-       COM derived from STL centroid (~0.005,-0.002,-0.015 m) rotated by Rz(-π/2)×Rx(-π/2):
-         p_link = R·p_stl + xyz_offset = (-0.006, -0.011, -0.003) m  -->
-  <link name="camera_link">
-    <inertial>
-      <mass value="${d435i_mass}"/>
-      <origin xyz="-0.006 -0.011 -0.003" rpy="0 0 0"/>
-      <xacro:box_inertia m="${d435i_mass}" x="${d435i_x}" y="${d435i_y}" z="${d435i_z}"/>
-    </inertial>
-    <visual>
-      <origin xyz="0.009 -0.006 -0.005" rpy="-1.5708 0 -1.5708"/>
-      <geometry><mesh filename="${mesh_camera}" scale="1 1 1"/></geometry>
-      <material name="dark_gray"/>
-    </visual>
-    <!-- Collision box centred on computed COM in link frame -->
-    <collision>
-      <origin xyz="-0.006 -0.011 -0.003" rpy="0 0 0"/>
-      <geometry><box size="${d435i_x} ${d435i_y} ${d435i_z}"/></geometry>
-    </collision>
-  </link>
+  <!-- D435i RealSense — official macro from realsense2_description.
+       Creates: camera_link (with d435.dae mesh), camera_bottom_screw_frame,
+       camera_depth/color/infra1/infra2 frames + optical frames, camera_imu_frame.
+       All extrinsics are from the D435i datasheet (use_nominal_extrinsics=true).
 
-  <!-- Camera body sits inside the case; centre it on the case mesh centroid. -->
-  <joint name="camera_mount_to_camera" type="fixed">
-    <parent link="camera_mount"/>
-    <child link="camera_link"/>
-    <origin xyz="${cam_case_cx} ${cam_case_cy} ${cam_case_cz}" rpy="0 0 0"/>
-  </joint>
-
-  <!-- Optical frames  (ROS camera convention: z=into-scene, x=right, y=down)
-       rpy="-pi/2 0 -pi/2" rotates body frame (x=fwd,y=left,z=up) to optical frame -->
-  <link name="camera_color_optical_frame"/>
-  <joint name="camera_color_optical_joint" type="fixed">
-    <parent link="camera_link"/>
-    <child link="camera_color_optical_frame"/>
-    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
-  </joint>
-
-  <link name="camera_depth_optical_frame"/>
-  <joint name="camera_depth_optical_joint" type="fixed">
-    <parent link="camera_link"/>
-    <child link="camera_depth_optical_frame"/>
-    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
-  </joint>
-
-  <!-- D435i IMU frame (~20 mm behind lens centre, ~5 mm left) -->
-  <link name="camera_imu_frame"/>
-  <joint name="camera_imu_joint" type="fixed">
-    <parent link="camera_link"/>
-    <child link="camera_imu_frame"/>
-    <origin xyz="-0.020 0.005 0" rpy="0 0 0"/>
-  </joint>
+       The origin places the camera's bottom tripod screw hole relative to
+       camera_mount's frame origin. Tune xyz in RViz to align the camera body
+       with the physical d435_mount_2 bracket. -->
+  <xacro:sensor_d435i parent="camera_mount" name="camera" use_nominal_extrinsics="true">
+    <origin xyz="0.02 0 -0.0122" rpy="0 0 0"/>
+  </xacro:sensor_d435i>
 
 
   <!-- ================================================================
