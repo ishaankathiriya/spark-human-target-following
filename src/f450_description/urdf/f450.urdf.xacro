@@ -382,7 +382,12 @@
   <xacro:property name="standoff_r"      value="0.00346"/> <!-- circumscribed hex radius (3.464 mm) -->
   <xacro:property name="standoff_h"      value="0.020"/>   <!-- STL Z span: 20 mm height -->
   <!-- Standoffs placed at corners of a 80×80 mm square on the top plate -->
-  <xacro:property name="standoff_spread" value="0.040"/>   <!-- ±40 mm from drone centre -->
+  <xacro:property name="standoff_spread" value="0.040"/>   <!-- ±40 mm from drone centre (PREVIOUS) -->
+
+  <xacro:property name="standoff_dx"  value="0.0318"/>
+  <xacro:property name="standoff_dy"  value="0.048"/>
+
+
   <!-- Mass: Al hex, V≈(3√3/2)×3.464²×20≈623 mm³ × 2.7 g/cm³ ≈ 1.7 g each → ~7 g total -->
   <xacro:property name="standoff_m_each" value="0.0017"/>
 
@@ -435,25 +440,25 @@
          Place each copy at the four corner positions (±40mm from drone centre). -->
     <!-- Front-left -->
     <visual name="standoff_fl">
-      <origin xyz="${standoff_spread} ${standoff_spread} 0" rpy="0 0 0"/>
+      <origin xyz="${standoff_dx} ${standoff_dy} 0" rpy="0 0 0"/>
       <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
       <material name="silver"/>
     </visual>
     <!-- Front-right -->
     <visual name="standoff_fr">
-      <origin xyz="${standoff_spread} ${-standoff_spread} 0" rpy="0 0 0"/>
+      <origin xyz="${standoff_dx} ${-standoff_dy} 0" rpy="0 0 0"/>
       <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
       <material name="silver"/>
     </visual>
     <!-- Rear-left -->
     <visual name="standoff_rl">
-      <origin xyz="${-standoff_spread} ${standoff_spread} 0" rpy="0 0 0"/>
+      <origin xyz="${-standoff_dx} ${standoff_dy} 0" rpy="0 0 0"/>
       <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
       <material name="silver"/>
     </visual>
     <!-- Rear-right -->
     <visual name="standoff_rr">
-      <origin xyz="${-standoff_spread} ${-standoff_spread} 0" rpy="0 0 0"/>
+      <origin xyz="${-standoff_dx} ${-standoff_dy} 0" rpy="0 0 0"/>
       <geometry><mesh filename="${mesh_standoff}" scale="${mesh_scale}"/></geometry>
       <material name="silver"/>
     </visual>
@@ -588,8 +593,8 @@
   <!-- GPS standoff mast — same aluminium hex type as frame standoffs -->
   <xacro:property name="gps_mast_r"    value="0.003"/>   <!-- 3 mm radius (M3 hex standoff) -->
   <xacro:property name="gps_mast_h"    value="0.070"/>   <!-- 70 mm: clears Jetson top (z≈0.070 m) by ~13 mm -->
-  <xacro:property name="gps_mast_x"    value="-0.032"/>  <!-- rear-left hole X in base_link frame -->
-  <xacro:property name="gps_mast_y"    value="0.046"/>   <!-- rear-left hole Y in base_link frame -->
+  <xacro:property name="gps_mast_x"    value="0.0318"/>  <!-- rear-left hole X in base_link frame -->
+  <xacro:property name="gps_mast_y"    value="0.048"/>   <!-- rear-left hole Y in base_link frame -->
   <xacro:property name="gps_mast_mass" value="0.002"/>   <!-- 2 g estimate -->
 
   <link name="gps_mast_link">
@@ -611,9 +616,9 @@
 
   <!-- Mast base sits on the F450 top plate surface (z = 0.013 m in base_link frame) -->
   <joint name="base_to_gps_mast" type="fixed">
-    <parent link="base_link"/>
+    <parent link="second_plate_link"/>
     <child link="gps_mast_link"/>
-    <origin xyz="${gps_mast_x} ${gps_mast_y + 0.0038} 0.013" rpy="0 0 -1.5708"/>
+    <origin xyz="${gps_mast_x} ${gps_mast_y} 0" rpy="0 0 -1.5708"/>
   </joint>
 
   <!-- GPS disc -->
