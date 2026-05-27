@@ -27,7 +27,7 @@
   <xacro:property name="mesh_motor"  value="${mesh_base}/motor.stl"/>
   <xacro:property name="mesh_prop"   value="${mesh_base}/propeller.stl"/>
   <xacro:property name="mesh_camera"   value="${mesh_base}/camera.STL"/>
-  <xacro:property name="mesh_case"     value="${mesh_base}/case_intel_realsense_d435.stl"/>
+  <xacro:property name="mesh_case"     value="${mesh_base}/d435_mount_2.stl"/>
   <xacro:property name="mesh_pixhawk"  value="${mesh_base}/pixhawk.STL"/>
   <xacro:property name="mesh_jetson"   value="${mesh_base}/jetson_orin_nano.stl"/>
   <xacro:property name="mesh_standoff" value="${mesh_base}/standoff.stl"/>
@@ -290,7 +290,7 @@
       <xacro:box_inertia m="${cam_mnt_m}" x="${cam_case_dx}" y="${cam_case_dy}" z="${cam_case_dz}"/>
     </inertial>
     <visual>
-      <origin xyz="0.01 0 -0.02" rpy="0 0 1.5708"/>
+      <origin xyz="-0.0555 -0.007 -0.0355" rpy="0 0 3.1416"/>
       <geometry><mesh filename="${mesh_case}" scale="${mesh_scale}"/></geometry>
       <material name="dark_gray"/>
     </visual>
@@ -304,7 +304,7 @@
   <joint name="body_to_camera_mount" type="fixed">
     <parent link="base_link"/>
     <child link="camera_mount"/>
-    <origin xyz="0.060 0 -0.010" rpy="0 0 0"/>
+    <origin xyz="0.0855 0.000 -0.0155" rpy="0 0 0"/>
   </joint>
 
   <!-- D435i camera body.
