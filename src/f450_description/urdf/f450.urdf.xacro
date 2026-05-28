@@ -17,8 +17,8 @@
 -->
 <robot name="dji_f450" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- Official RealSense D435i description (installed system-wide) -->
-  <xacro:include filename="$(find realsense2_description)/urdf/_d435i.urdf.xacro"/>
+  <!-- RealSense D435i description — local copy with corrected inertia (upstream values are ~70× too large) -->
+  <xacro:include filename="$(find f450_description)/urdf/_d435i_fixed.urdf.xacro"/>
 
   <!-- ================================================================
        MESH PATHS
@@ -33,7 +33,8 @@
   <xacro:property name="mesh_pixhawk"  value="${mesh_base}/pixhawk.STL"/>
   <xacro:property name="mesh_jetson"   value="${mesh_base}/jetson_orin_nano.stl"/>
   <xacro:property name="mesh_standoff" value="${mesh_base}/standoff.stl"/>
-  <xacro:property name="mesh_gps"      value="${mesh_base}/gps.stl"/>
+  <xacro:property name="mesh_gps"          value="${mesh_base}/gps.stl"/>
+  <xacro:property name="mesh_batt_mount"  value="${mesh_base}/drone_battery_mount.stl"/>
 
   <!-- SolidWorks exports STL in mm; URDF expects metres → scale = 0.001.
        If meshes appear the wrong size, flip this to "1 1 1". -->
@@ -495,8 +496,49 @@
 
 
   <!-- ================================================================
+       BATTERY MOUNT: drone_battery_mount.stl
+       STL bounds: X −35.5→+29.5 mm (65mm), Y −63.2→+60.8 mm (124mm), Z 3→9 mm (6mm)
+       STL centroid: (−3.0, −1.2, 6.0) mm
+       Mounted flush against the bottom plate (joint at z = −0.025 m).
+       Top face (Z=9mm) sits against bottom plate; bottom face (Z=3mm) at z=−0.031 m.
+       Visual origin places the top face at z=0 in the link frame.
+       ================================================================ -->
+  <xacro:property name="batt_mnt_x"    value="0.065"/>   <!-- 65 mm fore-aft -->
+  <xacro:property name="batt_mnt_y"    value="0.124"/>   <!-- 124 mm lateral -->
+  <xacro:property name="batt_mnt_z"    value="0.006"/>   <!-- 6 mm thick -->
+  <xacro:property name="batt_mnt_mass" value="0.020"/>   <!-- 20 g estimate -->
+
+  <link name="battery_mount_link">
+    <inertial>
+      <mass value="${batt_mnt_mass}"/>
+      <!-- COM: X/Y centred, Z is 3 mm below the top face (half the 6mm span) -->
+      <origin xyz="0 0 -0.003" rpy="0 0 0"/>
+      <xacro:box_inertia m="${batt_mnt_mass}" x="${batt_mnt_x}" y="${batt_mnt_y}" z="${batt_mnt_z}"/>
+    </inertial>
+    <!-- visual xyz: centres X/Y on STL centroid (−3,−1.2 mm) and places top face at z=0
+         vx=+0.003 (−(−3)×0.001), vy=+0.0012 (−(−1.2)×0.001), vz=−0.009 (−9×0.001) -->
+    <visual>
+      <origin xyz="0.003 0.0012 -0.009" rpy="0 0 0"/>
+      <geometry><mesh filename="${mesh_batt_mount}" scale="${mesh_scale}"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.003" rpy="0 0 0"/>
+      <geometry><box size="${batt_mnt_x} ${batt_mnt_y} ${batt_mnt_z}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Top face of mount sits flush against bottom plate underside -->
+  <joint name="body_to_battery_mount" type="fixed">
+    <parent link="base_link"/>
+    <child link="battery_mount_link"/>
+    <origin xyz="0 0 -0.025" rpy="0 0 1.5708"/>
+  </joint>
+
+
+  <!-- ================================================================
        BATTERY: Gen X Power 3300 mAh 4S LiPo, 14.8 V
-       Mounted under the bottom plate (bottom plate surface: z = −0.025 m).
+       Mounted under the battery mount (mount bottom face: z = −0.031 m).
        Dimensions ESTIMATED from comparable 3300 mAh 4S packs —
        update batt_x/y/z/mass once you measure the physical battery.
        Long axis (138 mm) runs fore-aft (+X) to minimise CG shift.
@@ -524,11 +566,11 @@
     </collision>
   </link>
 
-  <!-- Joint at bottom plate surface; battery link origin here, block hangs below -->
+  <!-- Joint at bottom face of battery mount (6 mm below bottom plate surface) -->
   <joint name="body_to_battery" type="fixed">
     <parent link="base_link"/>
     <child link="battery_link"/>
-    <origin xyz="0 0 -0.025" rpy="0 0 0"/>
+    <origin xyz="0 0 -0.031" rpy="0 0 0"/>
   </joint>
 
 

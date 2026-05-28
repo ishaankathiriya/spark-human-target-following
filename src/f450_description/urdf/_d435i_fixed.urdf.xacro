@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+  Local D435i macro wrapper.
+  Identical to the upstream _d435i.urdf.xacro except it includes
+  _d435_fixed.urdf.xacro (corrected inertia) instead of the upstream _d435.urdf.xacro.
+  The IMU modules xacro is still pulled from the system package — it has no inertia.
+  Original licence: Apache 2.0, Copyright 2023 Intel Corporation.
+-->
+<robot name="sensor_d435i" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="$(find f450_description)/urdf/_d435_fixed.urdf.xacro"/>
+  <xacro:include filename="$(find realsense2_description)/urdf/_d435i_imu_modules.urdf.xacro"/>
+
+  <xacro:macro name="sensor_d435i" params="parent *origin name:=camera use_nominal_extrinsics:=false">
+    <xacro:sensor_d435 parent="${parent}" name="${name}" use_nominal_extrinsics="${use_nominal_extrinsics}">
+      <xacro:insert_block name="origin" />
+    </xacro:sensor_d435>
+    <xacro:d435i_imu_modules name="${name}" use_nominal_extrinsics="${use_nominal_extrinsics}"/>
+  </xacro:macro>
+</robot>
