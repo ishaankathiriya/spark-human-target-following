@@ -9,7 +9,10 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/offboard.launch.py']),
+        ('share/' + package_name + '/launch', [
+            'launch/offboard.launch.py',
+            'launch/follow.launch.py',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'offboard_controller = htf_control.offboard_controller:main',
+            'follow_controller   = htf_control.follow_controller:main',
         ],
     },
 )
