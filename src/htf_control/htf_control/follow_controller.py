@@ -182,10 +182,10 @@ class FollowController(Node):
         self.declare_parameter('max_z_speed',      0.8)   # m/s
         self.declare_parameter('max_yaw_rate',     0.8)   # rad/s
         # Alpha-beta filter
-        self.declare_parameter('ab_alpha',         0.6)   # position gain (0–1); higher → more responsive
-        self.declare_parameter('ab_beta',          0.2)   # velocity gain; must be < 2*alpha
+        self.declare_parameter('ab_alpha',         0.8)   # position gain (0–1); higher → more responsive
+        self.declare_parameter('ab_beta',          0.6)   # velocity gain; must be < 2*alpha
         # Feedforward weight (0 = pure-P, 1 = full velocity feedforward + P correction)
-        self.declare_parameter('ff_gain',          0.7)
+        self.declare_parameter('ff_gain',          0.8)
         # Proportional gains
         self.declare_parameter('kp_dist',          0.4)   # forward  (m/s per m of depth error)
         self.declare_parameter('kp_lat',           0.0)   # lateral body  (0 = yaw-only, no strafe)

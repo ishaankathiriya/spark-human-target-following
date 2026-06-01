@@ -12,6 +12,7 @@ setup(
         ('share/' + package_name + '/launch', [
             'launch/offboard.launch.py',
             'launch/follow.launch.py',
+            'launch/pd_follow.launch.py',
         ]),
     ],
     install_requires=['setuptools'],
@@ -23,7 +24,8 @@ setup(
     entry_points={
         'console_scripts': [
             'offboard_controller = htf_control.offboard_controller:main',
-            'follow_controller   = htf_control.follow_controller:main',
+            'follow_controller    = htf_control.follow_controller:main',
+            'pd_follow_controller = htf_control.pd_follow_controller:main',
         ],
     },
 )
