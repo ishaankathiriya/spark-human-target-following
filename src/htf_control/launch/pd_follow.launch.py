@@ -11,8 +11,8 @@ def generate_launch_description():
         parameters=[{
             # ── Flight geometry ───────────────────────────────────────────────
             'takeoff_altitude': 2.0,    # metres AGL
-            'follow_distance':  1.5,    # metres behind centroid
-            'height_offset':    0.0,    # camera-y equilibrium (human slightly below centre)
+            'follow_distance':  2.5,    # metres behind centroid
+            'height_offset':    0.3,    # camera-y equilibrium (human slightly below centre)
 
             # ── Speed limits ──────────────────────────────────────────────────
             'max_xy_speed':  1.5,       # m/s
@@ -29,9 +29,9 @@ def generate_launch_description():
             # ff: pre-match human's recession/approach velocity
             # kp: close the distance error (follow_distance - centroid_z)
             # kd: damp overshoot on approach/recession  (D = kd * vel[2])
-            'ff_dist': 0.5,
+            'ff_dist': 0.6,
             'kp_dist': 0.6,
-            'kd_dist': 0.8,
+            'kd_dist': 0.9,
 
             # ── Yaw axis (camera x → yaw rate) ───────────────────────────────
             # ff: pre-rotate when human moves laterally
@@ -59,6 +59,15 @@ def generate_launch_description():
             # Suppress yaw P-term and strafe when human is near lateral centre.
             # FF and D remain active inside the deadband.
             'lat_deadband': 0.08,       # metres
+
+            # ── Lookahead ─────────────────────────────────────────────────────
+            # P term acts on the predicted position T seconds from now.
+            # Drone starts backing up while human is still at follow_distance
+            # and approaching, giving PX4 time to decelerate before overshoot.
+            # Tune with: lookahead_t ≈ max_xy_speed / MPC_ACC_HOR
+            # With max_xy=1.5 m/s and MPC_ACC_HOR=6 m/s²: 1.5/6 = 0.25 s
+            # Start at 0.4 s (a bit conservative) and reduce if drone backs up too eagerly.
+            'lookahead_t': 0.4,         # seconds
         }],
     )
 

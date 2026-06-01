@@ -164,6 +164,12 @@ class PDFollowController(Node):
 
         self.declare_parameter('lat_deadband', 0.08)   # metres
 
+        # Lookahead: predict human position this many seconds ahead for the P term.
+        # Causes the drone to start backing up BEFORE the human reaches follow_distance,
+        # giving PX4's inner velocity loop time to decelerate.
+        # Rule of thumb: set to (max_xy_speed / MPC_ACC_HOR) ≈ 1.5/6.0 = 0.25 s.
+        self.declare_parameter('lookahead_t', 0.4)    # seconds
+
         # Read all parameters
         self._takeoff_alt = self.get_parameter('takeoff_altitude').value
         self._follow_dist = self.get_parameter('follow_distance').value
@@ -190,7 +196,8 @@ class PDFollowController(Node):
         self._kp_alt  = self.get_parameter('kp_alt').value
         self._kd_alt  = self.get_parameter('kd_alt').value
 
-        self._lat_db  = self.get_parameter('lat_deadband').value
+        self._lat_db     = self.get_parameter('lat_deadband').value
+        self._lookahead  = self.get_parameter('lookahead_t').value
 
         if ab_beta >= 2.0 * ab_alpha:
             ab_beta = 0.99 * 2.0 * ab_alpha
@@ -388,18 +395,25 @@ class PDFollowController(Node):
         vel = [self._ab[i].predict(now)[1] for i in range(3)]
 
         # ── Depth axis ────────────────────────────────────────────────────────
-        # pos[2] = centroid z = depth (how far in front the human is)
-        # vel[2] = d(depth)/dt (positive = human moving away, negative = approaching)
-        # pos_error > 0 → human farther than desired → move forward
-        # D term uses vel[2] because d(pos_error)/dt = d(centroid_z)/dt = vel[2]
-        dist_err  = pos[2] - self._follow_dist
-        # Use stronger gains when human is too close (dist_err < 0)
-        kp = self._kp_dist * 2.0 if dist_err < 0 else self._kp_dist
-        kd = self._kd_dist * 2.0 if dist_err < 0 else self._kd_dist
-        body_fwd  = _clamp(
-            self._ff_dist * vel[2]          # feedforward: match human's recession/approach speed
-            + kp * dist_err      # P:           close the distance gap
-            + kd * vel[2],       # D:           damp overshoot
+        # pos[2] = centroid z  (how far in front the human currently is)
+        # vel[2] = relative velocity  (positive = moving away, negative = approaching)
+        #
+        # Lookahead: feed the P term the PREDICTED error T seconds from now.
+        # When the human is at follow_distance but approaching at 0.8 m/s:
+        #   current dist_err = 0  → no P correction today
+        #   predicted err (T=0.4s) = 0 + (-0.8)*0.4 = -0.32 m → start backing up NOW
+        # This gives PX4's velocity loop time to decelerate before the human arrives.
+        dist_err      = pos[2] - self._follow_dist
+        pred_dist_err = (pos[2] + vel[2] * self._lookahead) - self._follow_dist
+
+        # Asymmetric gains: be more aggressive when human is predicted to be too close.
+        kp = self._kp_dist * 2.0 if pred_dist_err < 0 else self._kp_dist
+        kd = self._kd_dist * 2.0 if pred_dist_err < 0 else self._kd_dist
+
+        body_fwd = _clamp(
+            self._ff_dist * vel[2]        # feedforward: match human's speed
+            + kp * pred_dist_err          # P on predicted error: anticipate approach
+            + kd * vel[2],                # D: damp overshoot
             -self._max_xy, self._max_xy)
 
         # ── Lateral / yaw axis ────────────────────────────────────────────────
