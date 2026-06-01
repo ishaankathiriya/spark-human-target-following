@@ -12,7 +12,7 @@ def generate_launch_description():
             # ── Flight geometry ───────────────────────────────────────────────
             'takeoff_altitude': 2.0,    # metres AGL
             'follow_distance':  1.5,    # metres behind centroid
-            'height_offset':    0.5,    # camera-y equilibrium (human slightly below centre)
+            'height_offset':    0.0,    # camera-y equilibrium (human slightly below centre)
 
             # ── Speed limits ──────────────────────────────────────────────────
             'max_xy_speed':  1.5,       # m/s
@@ -29,9 +29,9 @@ def generate_launch_description():
             # ff: pre-match human's recession/approach velocity
             # kp: close the distance error (follow_distance - centroid_z)
             # kd: damp overshoot on approach/recession  (D = kd * vel[2])
-            'ff_dist': 1.0,
-            'kp_dist': 0.5,
-            'kd_dist': 0.3,
+            'ff_dist': 0.5,
+            'kp_dist': 0.6,
+            'kd_dist': 0.8,
 
             # ── Yaw axis (camera x → yaw rate) ───────────────────────────────
             # ff: pre-rotate when human moves laterally

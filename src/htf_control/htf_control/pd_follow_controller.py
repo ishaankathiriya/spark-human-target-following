@@ -393,10 +393,13 @@ class PDFollowController(Node):
         # pos_error > 0 → human farther than desired → move forward
         # D term uses vel[2] because d(pos_error)/dt = d(centroid_z)/dt = vel[2]
         dist_err  = pos[2] - self._follow_dist
+        # Use stronger gains when human is too close (dist_err < 0)
+        kp = self._kp_dist * 2.0 if dist_err < 0 else self._kp_dist
+        kd = self._kd_dist * 2.0 if dist_err < 0 else self._kd_dist
         body_fwd  = _clamp(
             self._ff_dist * vel[2]          # feedforward: match human's recession/approach speed
-            + self._kp_dist * dist_err      # P:           close the distance gap
-            + self._kd_dist * vel[2],       # D:           damp overshoot
+            + kp * dist_err      # P:           close the distance gap
+            + kd * vel[2],       # D:           damp overshoot
             -self._max_xy, self._max_xy)
 
         # ── Lateral / yaw axis ────────────────────────────────────────────────
