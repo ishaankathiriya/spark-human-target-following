@@ -33,8 +33,9 @@
   <xacro:property name="mesh_pixhawk"  value="${mesh_base}/pixhawk.STL"/>
   <xacro:property name="mesh_jetson"   value="${mesh_base}/jetson_orin_nano.stl"/>
   <xacro:property name="mesh_standoff" value="${mesh_base}/standoff.stl"/>
-  <xacro:property name="mesh_gps"          value="${mesh_base}/gps.stl"/>
-  <xacro:property name="mesh_batt_mount"  value="${mesh_base}/drone_battery_mount.stl"/>
+  <xacro:property name="mesh_gps"           value="${mesh_base}/gps.stl"/>
+  <xacro:property name="mesh_batt_mount"   value="${mesh_base}/drone_battery_mount.stl"/>
+  <xacro:property name="mesh_landing_gear" value="${mesh_base}/drone_landing_gear.stl"/>
 
   <!-- SolidWorks exports STL in mm; URDF expects metres → scale = 0.001.
        If meshes appear the wrong size, flip this to "1 1 1". -->
@@ -699,6 +700,61 @@
   <xacro:esc_assembly prefix="front_left"/>
   <xacro:esc_assembly prefix="rear_left"/>
   <xacro:esc_assembly prefix="rear_right"/>
+
+
+  <!-- ================================================================
+       LANDING GEAR: drone_landing_gear.stl
+       Pre-assembled set of 4 inclined legs. Single STL, single link.
+
+       STL bounds (mm):  X 26.13→155.75  Y -8.67→123.70  Z -34.81→+1.00
+       STL bounding-box centre (XY): (90.94, 57.52) mm
+       STL Z: +1.0 mm = top/attachment surface
+               -34.8 mm = foot contact surface
+
+       Visual origin:
+         vx = -(90.94 × 0.001) = -0.091 m   → centres the assembly in X
+         vy = -(57.52 × 0.001) = -0.058 m   → centres the assembly in Y
+         vz = -(1.00  × 0.001) = -0.001 m   → places top face at joint origin (z=0)
+
+       When attached at the bottom plate (joint z=-0.025 m):
+         Top face:  z = -0.025 m (flush against bottom plate)
+         Feet:      z = -0.025 + (-0.036) = -0.061 m below base_link
+       ================================================================ -->
+
+  <xacro:property name="lg_dx"   value="0.130"/>  <!-- 130 mm X span -->
+  <xacro:property name="lg_dy"   value="0.132"/>  <!-- 132 mm Y span -->
+  <xacro:property name="lg_dz"   value="0.036"/>  <!-- 36 mm height  -->
+  <xacro:property name="lg_mass" value="0.040"/>  <!-- 40 g estimate -->
+
+  <link name="landing_gear_link">
+    <inertial>
+      <mass value="${lg_mass}"/>
+      <!-- COM: centred in XY (after visual correction), at mid-height below joint -->
+      <origin xyz="0 0 -0.018" rpy="0 0 0"/>
+      <xacro:box_inertia m="${lg_mass}" x="${lg_dx}" y="${lg_dy}" z="${lg_dz}"/>
+    </inertial>
+    <!-- Visual: visual origin offsets the STL to centre it and align its top face
+         with the link origin. Verify alignment in RViz and adjust xyz if needed. -->
+    <visual>
+      <origin xyz="-0.091 -0.058 -0.001" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="${mesh_landing_gear}" scale="${mesh_scale}"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <!-- Collision: box enclosing the full gear footprint, centred on COM -->
+    <collision>
+      <origin xyz="0 0 -0.018" rpy="0 0 0"/>
+      <geometry><box size="${lg_dx} ${lg_dy} ${lg_dz}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Top of gear sits flush against the bottom plate (z = -0.025 m) -->
+  <joint name="body_to_landing_gear" type="fixed">
+    <parent link="base_link"/>
+    <child link="landing_gear_link"/>
+    <origin xyz="0 0 -0.025" rpy="0 0 0"/>
+  </joint>
 
 
 </robot>
