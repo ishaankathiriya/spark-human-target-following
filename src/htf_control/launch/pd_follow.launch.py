@@ -12,7 +12,7 @@ def generate_launch_description():
             # ── Flight geometry ───────────────────────────────────────────────
             'takeoff_altitude': 2.0,    # metres AGL
             'follow_distance':  2.5,    # metres behind centroid
-            'height_offset':    0.3,    # camera-y equilibrium (human slightly below centre)
+            'height_offset':    0.6,    # camera-y equilibrium (human slightly below centre)
 
             # ── Speed limits ──────────────────────────────────────────────────
             'max_xy_speed':  1.5,       # m/s
