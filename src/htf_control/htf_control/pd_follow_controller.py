@@ -47,7 +47,7 @@ from px4_msgs.msg import (
     VehicleLocalPosition,
     VehicleStatus,
 )
-from geometry_msgs.msg import PointStamped
+from geometry_msgs.msg import PointStamped, Vector3Stamped
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -147,10 +147,15 @@ class PDFollowController(Node):
         self.declare_parameter('kp_dist', 0.5)   # P: close distance gap
         self.declare_parameter('kd_dist', 0.3)   # D: damp approach/recession
 
-        # Yaw axis (camera x → yaw rate)
-        self.declare_parameter('ff_yaw',  0.8)   # feedforward: pre-rotate with lateral motion
-        self.declare_parameter('kp_yaw',  0.6)   # P: correct lateral offset
-        self.declare_parameter('kd_yaw',  0.2)   # D: damp yaw oscillation
+        # Yaw axis — P controller on bearing angle to human.
+        # yaw_rate = kp_yaw * atan2(pos[0], pos[2])
+        # atan2 gives the true bearing angle (radians) regardless of depth,
+        # so kp_yaw has units of rad/s per radian.
+        self.declare_parameter('kp_yaw',  1.5)   # rad/s per radian of bearing error
+
+        # Yaw deadband in radians — ignore small angles to prevent hunting.
+        # 0.05 rad ≈ 3°  (was previously 0.08 m which was depth-dependent)
+        self.declare_parameter('yaw_deadband', 0.05)  # radians
 
         # Lateral strafe axis (camera x → body right) — off by default
         self.declare_parameter('ff_lat',  0.0)
@@ -184,9 +189,8 @@ class PDFollowController(Node):
         self._kp_dist = self.get_parameter('kp_dist').value
         self._kd_dist = self.get_parameter('kd_dist').value
 
-        self._ff_yaw  = self.get_parameter('ff_yaw').value
-        self._kp_yaw  = self.get_parameter('kp_yaw').value
-        self._kd_yaw  = self.get_parameter('kd_yaw').value
+        self._kp_yaw   = self.get_parameter('kp_yaw').value
+        self._yaw_db   = self.get_parameter('yaw_deadband').value
 
         self._ff_lat  = self.get_parameter('ff_lat').value
         self._kp_lat  = self.get_parameter('kp_lat').value
@@ -214,6 +218,13 @@ class PDFollowController(Node):
             TrajectorySetpoint,  '/fmu/in/trajectory_setpoint',   _PX4_PUB_QOS)
         self._cmd_pub = self.create_publisher(
             VehicleCommand,      '/fmu/in/vehicle_command',        _PX4_PUB_QOS)
+
+        # Debug publishers — alpha-beta filter output, published every FOLLOW cycle.
+        # x = lateral (camera right), y = vertical (camera down), z = depth (forward).
+        self._dbg_vel_pub = self.create_publisher(
+            Vector3Stamped, '/htf/human_vel', 10)   # alpha-beta velocity estimates (m/s)
+        self._dbg_pos_pub = self.create_publisher(
+            PointStamped,   '/htf/human_pos', 10)   # alpha-beta position estimates (m)
 
         # ── Subscribers ───────────────────────────────────────────────────────
         self.create_subscription(
@@ -416,24 +427,25 @@ class PDFollowController(Node):
             + kd * vel[2],                # D: damp overshoot
             -self._max_xy, self._max_xy)
 
-        # ── Lateral / yaw axis ────────────────────────────────────────────────
-        # pos[0] = centroid x = lateral offset (positive = human is to the right)
-        # vel[0] = d(lateral)/dt (positive = human moving right relative to drone)
-        # Deadband applied to P and strafe only — FF and D remain active
-        # to preserve responsiveness during actual lateral motion.
-        lat_p      = pos[0] if abs(pos[0]) >= self._lat_db else 0.0
+        # ── Yaw axis — bearing-angle P controller ────────────────────────────
+        # bearing = atan2(lateral_offset, depth) = true angle to human in body frame.
+        # desired_yaw   = heading + bearing
+        # yaw_error     = desired_yaw - heading  = bearing   (simplifies cleanly)
+        # yaw_rate      = kp_yaw * bearing
+        # Deadband in radians (~3°) prevents hunting when human is nearly centred.
+        bearing = math.atan2(pos[0], pos[2])   # radians, + = human to the right
+        if abs(bearing) < self._yaw_db:
+            bearing = 0.0
 
+        yaw_rate = _clamp(self._kp_yaw * bearing, -self._max_yaw, self._max_yaw)
+
+        # ── Lateral strafe (optional, off by default) ─────────────────────────
+        lat_p      = pos[0] if abs(pos[0]) >= self._lat_db else 0.0
         body_right = _clamp(
             self._ff_lat * vel[0]
             + self._kp_lat * lat_p
             + self._kd_lat * vel[0],
             -self._max_xy, self._max_xy)
-
-        yaw_rate   = _clamp(
-            self._ff_yaw * vel[0]           # feedforward: pre-rotate with lateral motion
-            + self._kp_yaw * lat_p          # P:           centre human in frame
-            + self._kd_yaw * vel[0],        # D:           damp yaw oscillation
-            -self._max_yaw, self._max_yaw)
 
         # ── Altitude axis ─────────────────────────────────────────────────────
         # pos[1] = centroid y = camera-down offset (positive = human below centre)
@@ -455,6 +467,25 @@ class PDFollowController(Node):
             vz       = -body_up,    # NED z is positive-down
             yaw_rate = yaw_rate,
         )
+
+        # ── Debug: publish alpha-beta estimates for live plotting ─────────────
+        stamp = self.get_clock().now().to_msg()
+
+        vel_msg = Vector3Stamped()
+        vel_msg.header.stamp = stamp
+        vel_msg.header.frame_id = 'camera_link'
+        vel_msg.vector.x = vel[0]   # lateral velocity  (m/s, + = human moving right)
+        vel_msg.vector.y = vel[1]   # vertical velocity (m/s, + = human moving down)
+        vel_msg.vector.z = vel[2]   # depth velocity    (m/s, + = human moving away)
+        self._dbg_vel_pub.publish(vel_msg)
+
+        pos_msg = PointStamped()
+        pos_msg.header.stamp = stamp
+        pos_msg.header.frame_id = 'camera_link'
+        pos_msg.point.x = pos[0]   # filtered lateral offset  (m)
+        pos_msg.point.y = pos[1]   # filtered vertical offset (m)
+        pos_msg.point.z = pos[2]   # filtered depth           (m)
+        self._dbg_pos_pub.publish(pos_msg)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Publish helpers

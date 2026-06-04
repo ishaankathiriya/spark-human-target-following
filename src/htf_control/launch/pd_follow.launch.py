@@ -33,13 +33,12 @@ def generate_launch_description():
             'kp_dist': 0.6,
             'kd_dist': 0.9,
 
-            # ── Yaw axis (camera x → yaw rate) ───────────────────────────────
-            # ff: pre-rotate when human moves laterally
-            # kp: centre human in frame
-            # kd: damp yaw oscillation
-            'ff_yaw': 0.8,
-            'kp_yaw': 0.6,
-            'kd_yaw': 0.2,
+            # ── Yaw axis — bearing-angle P controller ────────────────────────
+            # yaw_rate = kp_yaw * atan2(lateral_offset, depth)
+            # kp_yaw units: rad/s per radian of bearing error.
+            # yaw_deadband: angles below this treated as zero (prevents hunting).
+            'kp_yaw':       1.5,    # rad/s per radian
+            'yaw_deadband': 0.05,   # radians (~3°)
 
             # ── Lateral strafe axis (camera x → body right) ───────────────────
             # Off by default — yaw handles lateral. Enable if strafing is needed.

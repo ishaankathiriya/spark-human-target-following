@@ -13,6 +13,7 @@ setup(
             'launch/offboard.launch.py',
             'launch/follow.launch.py',
             'launch/pd_follow.launch.py',
+            'launch/hover_test.launch.py',
         ]),
     ],
     install_requires=['setuptools'],
@@ -23,9 +24,12 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'offboard_controller = htf_control.offboard_controller:main',
+            'offboard_controller  = htf_control.offboard_controller:main',
             'follow_controller    = htf_control.follow_controller:main',
             'pd_follow_controller = htf_control.pd_follow_controller:main',
+            'debug_plotter        = htf_control.debug_plotter:main',
+            'debug_logger         = htf_control.debug_logger:main',
+            'hover_test           = htf_control.hover_test:main',
         ],
     },
 )
