@@ -22,8 +22,9 @@ def generate_launch_description():
             # ── Alpha-beta filter ─────────────────────────────────────────────
             # alpha: position responsiveness (0–1). Higher → faster, noisier.
             # beta:  velocity responsiveness. Must satisfy: beta < 2 * alpha.
-            'ab_alpha': 0.8,
-            'ab_beta':  0.6,
+            'ab_alpha':            0.5,   # position smoothing
+            'ab_beta':             0.08,  # velocity gain (noise ≈ 0.073 m/s)
+            'max_plausible_speed': 8.0,   # m/s — gate rejects sensor outliers
 
             # ── Depth axis (camera z → body forward/backward) ─────────────────
             # ff: pre-match human's recession/approach velocity

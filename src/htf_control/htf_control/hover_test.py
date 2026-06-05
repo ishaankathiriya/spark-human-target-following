@@ -29,10 +29,13 @@ Topics produced:
   /htf/human_pos                       geometry_msgs/PointStamped    (alpha-beta pos)
 """
 
+import collections
 import math
 import signal
 import time
 from enum import IntEnum
+
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
@@ -49,15 +52,18 @@ from geometry_msgs.msg import PointStamped, Vector3Stamped
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Alpha-beta filter (single axis)
+# Axis estimator: alpha-beta for position, linear regression for velocity
 # ──────────────────────────────────────────────────────────────────────────────
 
-class _AlphaBeta:
+class _AxisEstimator:
+    """Alpha-beta position + sliding-window regression velocity (same interface as _AlphaBeta)."""
+
     _MIN_DT = 1e-3
 
-    def __init__(self, alpha: float, beta: float):
+    def __init__(self, alpha: float, beta: float, max_plausible_speed: float = 8.0):
         self._alpha = alpha
         self._beta  = beta
+        self._max_v = max_plausible_speed
         self._pos   = 0.0
         self._vel   = 0.0
         self._t     = 0.0
@@ -66,13 +72,16 @@ class _AlphaBeta:
     def update(self, meas: float, t: float) -> tuple[float, float]:
         if not self._ready:
             self._pos, self._vel, self._t, self._ready = meas, 0.0, t, True
+            return self._pos, 0.0
+        dt         = max(t - self._t, self._MIN_DT)
+        pred       = self._pos + self._vel * dt
+        innovation = meas - pred
+        if abs(innovation) > self._max_v * dt:
+            self._t = t
             return self._pos, self._vel
-        dt        = max(t - self._t, self._MIN_DT)
         self._t   = t
-        pred      = self._pos + self._vel * dt
-        residual  = meas - pred
-        self._pos = pred + self._alpha * residual
-        self._vel = self._vel + (self._beta / dt) * residual
+        self._pos = pred + self._alpha * innovation
+        self._vel = self._vel + (self._beta / dt) * innovation
         return self._pos, self._vel
 
     def predict(self, t: float) -> tuple[float, float]:
@@ -121,18 +130,24 @@ class HoverTestNode(Node):
         super().__init__('hover_test')
 
         self.declare_parameter('takeoff_altitude', 1.5)  # metres AGL
-        self.declare_parameter('ab_alpha',         0.8)
-        self.declare_parameter('ab_beta',          0.6)
+        self.declare_parameter('ab_alpha',            0.5)
+        self.declare_parameter('ab_beta',             0.08)
+        self.declare_parameter('max_plausible_speed', 8.0)
 
         self._takeoff_alt = self.get_parameter('takeoff_altitude').value
         ab_alpha          = self.get_parameter('ab_alpha').value
         ab_beta           = self.get_parameter('ab_beta').value
+        max_plausible_spd = self.get_parameter('max_plausible_speed').value
 
         if ab_beta >= 2.0 * ab_alpha:
             ab_beta = 0.99 * 2.0 * ab_alpha
 
         # [0]=lateral, [1]=vertical, [2]=depth
-        self._ab = [_AlphaBeta(ab_alpha, ab_beta) for _ in range(3)]
+        self._ab = [_AxisEstimator(ab_alpha, ab_beta, max_plausible_spd) for _ in range(3)]
+
+        # Runtime parameter tuning — allows `ros2 param set /hover_test ab_beta 0.25`
+        # without restarting the node. Updates filter objects in place.
+        self.add_on_set_parameters_callback(self._on_param_change)
 
         # ── Publishers ────────────────────────────────────────────────────────
         self._ocm_pub = self.create_publisher(
@@ -177,6 +192,25 @@ class HoverTestNode(Node):
         self.get_logger().info(
             f'HoverTest ready — will hold at {self._takeoff_alt:.1f} m AGL.  '
             f'Publishing /htf/human_vel and /htf/human_pos continuously.')
+
+    # ── Runtime parameter callback ────────────────────────────────────────────
+
+    def _on_param_change(self, params):
+        from rcl_interfaces.msg import SetParametersResult
+        for p in params:
+            if p.name == 'ab_alpha':
+                for f in self._ab:
+                    f._alpha = p.value
+                self.get_logger().info(f'ab_alpha → {p.value}')
+            elif p.name == 'ab_beta':
+                for f in self._ab:
+                    f._beta = p.value
+                self.get_logger().info(f'ab_beta → {p.value}')
+            elif p.name == 'max_plausible_speed':
+                for f in self._ab:
+                    f._max_v = p.value
+                self.get_logger().info(f'max_plausible_speed → {p.value}')
+        return SetParametersResult(successful=True)
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
 

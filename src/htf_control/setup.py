@@ -30,6 +30,7 @@ setup(
             'debug_plotter        = htf_control.debug_plotter:main',
             'debug_logger         = htf_control.debug_logger:main',
             'hover_test           = htf_control.hover_test:main',
+            'ground_truth_node    = htf_control.ground_truth_node:main',
         ],
     },
 )

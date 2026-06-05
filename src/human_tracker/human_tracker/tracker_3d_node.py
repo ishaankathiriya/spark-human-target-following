@@ -79,20 +79,43 @@ class HumanTracker3DNode(Node):
         y = (py - cy) * depth_m / fy
         return x, y, depth_m
 
-    def _sample_depth(self, depth_image, cx, cy, encoding):
+    def _sample_depth(self, depth_image, x1, y1, x2, y2, encoding):
+        """Sample depth from the inner 60% of the bounding box.
+
+        Uses a large region rather than a small centre patch so that:
+        - Hundreds of pixels are averaged instead of ~25
+        - Edge pixels (likely background) are excluded by the 20% margin
+        - Outliers are removed by taking the median of valid depths only
+        """
         h, w = depth_image.shape
-        half = self.patch // 2
-        x0 = max(0, int(cx) - half)
-        x1 = min(w, int(cx) + half + 1)
-        y0 = max(0, int(cy) - half)
-        y1 = min(h, int(cy) + half + 1)
-        patch = depth_image[y0:y1, x0:x1].astype(np.float32)
-        valid = patch[(patch > 0) & np.isfinite(patch)]
-        if valid.size == 0:
-            return None
-        raw = float(np.median(valid))
-        # 16UC1 = RealSense hardware (millimetres); 32FC1 = Gazebo simulation (metres)
-        return raw * 0.001 if encoding == '16UC1' else raw
+
+        bw = x2 - x1
+        bh = y2 - y1
+        mx = max(1, int(bw * 0.20))
+        my = max(1, int(bh * 0.20))
+
+        rx0 = max(0, x1 + mx);  rx1 = min(w, x2 - mx)
+        ry0 = max(0, y1 + my);  ry1 = min(h, y2 - my)
+
+        if rx1 <= rx0 or ry1 <= ry0:
+            # Box too small for margin — fall back to a 5×5 centre patch
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            rx0 = max(0, cx - 2);  rx1 = min(w, cx + 3)
+            ry0 = max(0, cy - 2);  ry1 = min(h, cy + 3)
+
+        region = depth_image[ry0:ry1, rx0:rx1].astype(np.float32)
+
+        # 16UC1 = RealSense hardware (mm); 32FC1 = Gazebo simulation (metres)
+        if encoding == '16UC1':
+            valid = region[(region > 100) & (region < 10000)]   # 0.1 m – 10 m in mm
+            if valid.size == 0:
+                return None
+            return float(np.median(valid)) * 0.001
+        else:
+            valid = region[(region > 0.1) & (region < 10.0) & np.isfinite(region)]
+            if valid.size == 0:
+                return None
+            return float(np.median(valid))
 
     def _image_callback(self, rgb_msg: Image, depth_msg: Image):
         if self.intrinsics is None:
@@ -132,7 +155,7 @@ class HumanTracker3DNode(Node):
                 cx = (x1 + x2) / 2.0
                 cy = (y1 + y2) / 2.0
 
-                depth_m = self._sample_depth(depth, cx, cy, depth_encoding)
+                depth_m = self._sample_depth(depth, x1, y1, x2, y2, depth_encoding)
                 if depth_m is None or depth_m <= 0:
                     X, Y, Z = None, None, None
                 else:

@@ -43,3 +43,11 @@
   gz_type_name: gz.msgs.IMU
   ros_type_name: sensor_msgs/msg/Imu
   direction: GZ_TO_ROS
+
+# Ground truth: all entity poses from the Gazebo physics engine.
+# Used by the ground_truth_node to extract the walking_human's exact position.
+- gz_topic_name: /world/default/pose/info
+  ros_topic_name: /gz/world/pose_info
+  gz_type_name: gz.msgs.Pose_V
+  ros_type_name: tf2_msgs/msg/TFMessage
+  direction: GZ_TO_ROS

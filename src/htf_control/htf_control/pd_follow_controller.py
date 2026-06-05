@@ -31,10 +31,13 @@ Topics produced:
     /fmu/in/vehicle_command             (px4_msgs/VehicleCommand)
 """
 
+import collections
 import math
 import signal
 import time
 from enum import IntEnum
+
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
@@ -51,32 +54,64 @@ from geometry_msgs.msg import PointStamped, Vector3Stamped
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Alpha-beta filter (single axis)
+# Alpha-beta filter with innovation gating (single axis)
 # ──────────────────────────────────────────────────────────────────────────────
 
-class _AlphaBeta:
-    """Single-axis position + velocity estimator from noisy position measurements."""
+class _AxisEstimator:
+    """Alpha-beta filter with innovation gating.
+
+    Innovation gating rejects sensor outliers before they corrupt the velocity
+    estimate.  Before each update the filter asks: would accepting this
+    measurement require moving faster than max_plausible_speed?  If yes, the
+    measurement is discarded — it is almost certainly a depth sensor artifact,
+    not real motion.
+
+    This is a physical upper bound (nobody moves at 10 m/s), NOT an assumption
+    about the specific human's speed.  Normal walking/running passes the gate;
+    a depth pixel jumping 2 m in 33 ms (~60 m/s implied) is rejected.
+
+    Parameters
+    ----------
+    alpha               : position correction gain  (lower → smoother, more lag)
+    beta                : velocity correction gain  (much lower than 0.6 to reduce noise)
+                          noise/step = (beta/dt) × σ_depth
+                          beta=0.08, dt=0.033, σ=0.03 m → 0.073 m/s (was 0.54 m/s)
+    max_plausible_speed : gate threshold in m/s — measurements implying faster
+                          motion than this are rejected as sensor outliers.
+                          Default 8 m/s covers sprinting; set higher if needed.
+    """
 
     _MIN_DT = 1e-3
 
-    def __init__(self, alpha: float, beta: float):
-        self._alpha = alpha
-        self._beta  = beta
-        self._pos   = 0.0
-        self._vel   = 0.0
-        self._t     = 0.0
-        self._ready = False
+    def __init__(self, alpha: float, beta: float, max_plausible_speed: float = 8.0):
+        self._alpha    = alpha
+        self._beta     = beta
+        self._max_v    = max_plausible_speed
+        self._pos      = 0.0
+        self._vel      = 0.0
+        self._t        = 0.0
+        self._ready    = False
 
     def update(self, meas: float, t: float) -> tuple[float, float]:
         if not self._ready:
             self._pos, self._vel, self._t, self._ready = meas, 0.0, t, True
+            return self._pos, 0.0
+
+        dt   = max(t - self._t, self._MIN_DT)
+        pred = self._pos + self._vel * dt
+
+        # Innovation gate: reject measurements that imply physically impossible motion.
+        # max allowed step = max_plausible_speed × dt (scales with elapsed time,
+        # so long detection gaps allow larger legitimate depth changes).
+        innovation = meas - pred
+        if abs(innovation) > self._max_v * dt:
+            # Outlier — keep current state, only advance time
+            self._t = t
             return self._pos, self._vel
-        dt         = max(t - self._t, self._MIN_DT)
-        self._t    = t
-        pred_pos   = self._pos + self._vel * dt
-        residual   = meas - pred_pos
-        self._pos  = pred_pos + self._alpha * residual
-        self._vel  = self._vel + (self._beta / dt) * residual
+
+        self._t   = t
+        self._pos = pred + self._alpha * innovation
+        self._vel = self._vel + (self._beta / dt) * innovation
         return self._pos, self._vel
 
     def predict(self, t: float) -> tuple[float, float]:
@@ -139,8 +174,9 @@ class PDFollowController(Node):
         self.declare_parameter('max_z_speed',   0.8)
         self.declare_parameter('max_yaw_rate',  0.8)
 
-        self.declare_parameter('ab_alpha', 0.8)
-        self.declare_parameter('ab_beta',  0.6)
+        self.declare_parameter('ab_alpha',            0.5)   # position smoothing
+        self.declare_parameter('ab_beta',             0.08)  # velocity gain (noise ≈ 0.073 m/s vs 0.54 m/s)
+        self.declare_parameter('max_plausible_speed', 8.0)   # m/s — gate threshold (rejects sensor outliers)
 
         # Depth axis (camera z → body forward/backward)
         self.declare_parameter('ff_dist', 1.0)   # feedforward: match human depth-velocity
@@ -184,6 +220,7 @@ class PDFollowController(Node):
         self._max_yaw     = self.get_parameter('max_yaw_rate').value
         ab_alpha          = self.get_parameter('ab_alpha').value
         ab_beta           = self.get_parameter('ab_beta').value
+        max_plausible_spd = self.get_parameter('max_plausible_speed').value
 
         self._ff_dist = self.get_parameter('ff_dist').value
         self._kp_dist = self.get_parameter('kp_dist').value
@@ -209,7 +246,7 @@ class PDFollowController(Node):
                 f'ab_beta clamped to {ab_beta:.3f} (stability: beta < 2*alpha)')
 
         # [0]=x/lateral, [1]=y/altitude, [2]=z/depth
-        self._ab = [_AlphaBeta(ab_alpha, ab_beta) for _ in range(3)]
+        self._ab = [_AxisEstimator(ab_alpha, ab_beta, max_plausible_spd) for _ in range(3)]
 
         # ── Publishers ────────────────────────────────────────────────────────
         self._ocm_pub = self.create_publisher(

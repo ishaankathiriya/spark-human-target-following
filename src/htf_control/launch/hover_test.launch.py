@@ -10,9 +10,10 @@ def generate_launch_description():
             name='hover_test',
             output='screen',
             parameters=[{
-                'takeoff_altitude': 1.5,    # metres AGL — how high to hover
-                'ab_alpha':         0.8,    # alpha-beta position gain
-                'ab_beta':          0.6,    # alpha-beta velocity gain (must be < 2*alpha)
+                'takeoff_altitude':    1.5,   # metres AGL
+                'ab_alpha':            0.5,   # position smoothing
+                'ab_beta':             0.08,  # velocity gain (noise ≈ 0.073 m/s)
+                'max_plausible_speed': 8.0,   # m/s — gate rejects sensor outliers
             }],
         )
     ])
