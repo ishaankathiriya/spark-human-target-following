@@ -296,9 +296,9 @@ class PDFollowController(Node):
         self.create_timer(self._LOOP_DT, self._control_loop)
         self.get_logger().info(
             f'PDFollowController ready.  '
-            f'α={ab_alpha}  β={ab_beta}  '
+            f'α={ab_alpha}  β={ab_beta}  gate={max_plausible_spd} m/s  '
             f'dist(ff={self._ff_dist} kp={self._kp_dist} kd={self._kd_dist})  '
-            f'yaw(ff={self._ff_yaw} kp={self._kp_yaw} kd={self._kd_yaw})  '
+            f'yaw(kp={self._kp_yaw} db={self._yaw_db:.2f}rad)  '
             f'alt(ff={self._ff_alt} kp={self._kp_alt} kd={self._kd_alt})')
 
     # ──────────────────────────────────────────────────────────────────────────
