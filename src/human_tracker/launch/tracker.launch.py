@@ -31,6 +31,7 @@ def generate_launch_description():
             executable='tracker_3d_node',
             name='human_tracker_3d',
             parameters=[{
+                'model': '/home/btp/spark-human-target-following/yolov8n_480.engine',
                 'confidence': LaunchConfiguration('confidence'),
                 'target_id': LaunchConfiguration('target_id'),
             }],

@@ -4,10 +4,14 @@ from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import PointStamped
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
 from cv_bridge import CvBridge
+import torch
+torch.set_num_threads(1)
 from ultralytics import YOLO
 import message_filters
 import numpy as np
 import cv2
+import time
+cv2.setNumThreads(1)
 
 
 class HumanTracker3DNode(Node):
@@ -29,7 +33,8 @@ class HumanTracker3DNode(Node):
         self._device = self.get_parameter('device').get_parameter_value().string_value
 
         self.model = YOLO(model_path)
-        self.model.to(self._device)
+        if model_path.endswith('.pt'):
+            self.model.to(self._device)
         self.bridge = CvBridge()
         self.intrinsics = None
 
@@ -55,6 +60,14 @@ class HumanTracker3DNode(Node):
             PointStamped, '/tracker/centroid_3d', 10)
         self.pub_debug = self.create_publisher(
             Image, '/tracker/debug_image', 10)
+
+        self._prof_n = 0
+        self._prof_conv = 0.0
+        self._prof_track = 0.0
+        self._prof_post = 0.0
+        self._prof_pre = 0.0
+        self._prof_infer = 0.0
+        self._prof_postp = 0.0
 
         self.get_logger().info('Human tracker 3D node started')
 
@@ -124,10 +137,14 @@ class HumanTracker3DNode(Node):
         if self.intrinsics is None:
             return
 
+        t0 = time.perf_counter()
+
         frame = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
         depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding='passthrough')
         depth_encoding = depth_msg.encoding
         h, w = frame.shape[:2]
+
+        t1 = time.perf_counter()
 
         results = self.model.track(
             frame,
@@ -139,6 +156,12 @@ class HumanTracker3DNode(Node):
             verbose=False,
         )
 
+        t2 = time.perf_counter()
+        spd = results[0].speed  # ms: {'preprocess', 'inference', 'postprocess'} from ultralytics
+        self._prof_pre += spd.get('preprocess', 0.0)
+        self._prof_infer += spd.get('inference', 0.0)
+        self._prof_postp += spd.get('postprocess', 0.0)
+
         det_array_msg = Detection2DArray()
         det_array_msg.header = rgb_msg.header
 
@@ -146,7 +169,8 @@ class HumanTracker3DNode(Node):
         min_dist = float('inf')
         cx_img, cy_img = w / 2.0, h / 2.0
 
-        annotated = frame.copy()
+        publish_debug = self.pub_debug.get_subscription_count() > 0
+        annotated = frame.copy() if publish_debug else None
 
         if results[0].boxes is not None:
             for box in results[0].boxes:
@@ -177,20 +201,20 @@ class HumanTracker3DNode(Node):
                 det.results.append(hyp)
                 det_array_msg.detections.append(det)
 
-                # Draw bounding box and track ID
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.circle(annotated, (int(cx), int(cy)), 4, (0, 0, 255), -1)
-                cv2.putText(annotated, f'ID:{track_id}',
-                            (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+                # Draw bounding box and track ID (only when someone is viewing the debug feed)
+                if publish_debug:
+                    cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.circle(annotated, (int(cx), int(cy)), 4, (0, 0, 255), -1)
+                    cv2.putText(annotated, f'ID:{track_id}',
+                                (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
 
-                # Draw 3D coordinates above the centroid
-                if X is not None:
-                    coord_text = f'X:{X:.2f} Y:{Y:.2f} Z:{Z:.2f}m'
-                    cv2.putText(annotated, coord_text,
-                                (int(cx) - 60, int(cy) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-                else:
-                    cv2.putText(annotated, 'depth: N/A',
-                                (int(cx) - 40, int(cy) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 2)
+                    if X is not None:
+                        coord_text = f'X:{X:.2f} Y:{Y:.2f} Z:{Z:.2f}m'
+                        cv2.putText(annotated, coord_text,
+                                    (int(cx) - 60, int(cy) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                    else:
+                        cv2.putText(annotated, 'depth: N/A',
+                                    (int(cx) - 40, int(cy) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 2)
 
                 # Select target
                 if self.target_id != -1:
@@ -212,8 +236,36 @@ class HumanTracker3DNode(Node):
             pt.point.z = target_centroid_3d[2]
             self.pub_centroid.publish(pt)
 
-        self.pub_debug.publish(
-            self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8'))
+        if publish_debug:
+            self.pub_debug.publish(
+                self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8'))
+
+        t3 = time.perf_counter()
+        self._prof_conv += t1 - t0
+        self._prof_track += t2 - t1
+        self._prof_post += t3 - t2
+        self._prof_n += 1
+        if self._prof_n >= 60:
+            n = self._prof_n
+            bytetrack_ms = self._prof_track - (self._prof_pre + self._prof_infer + self._prof_postp) / 1000.0
+            self.get_logger().info(
+                f'PROFILE ms/frame (avg of {n}): '
+                f'convert={1000 * self._prof_conv / n:.1f} '
+                f'track_total={1000 * self._prof_track / n:.1f} '
+                f'[pre={self._prof_pre / n:.1f} '
+                f'infer={self._prof_infer / n:.1f} '
+                f'yolo_post={self._prof_postp / n:.1f} '
+                f'bytetrack≈{1000 * bytetrack_ms / n:.1f}] '
+                f'post={1000 * self._prof_post / n:.1f} '
+                f'total={1000 * (self._prof_conv + self._prof_track + self._prof_post) / n:.1f}'
+            )
+            self._prof_n = 0
+            self._prof_conv = 0.0
+            self._prof_track = 0.0
+            self._prof_post = 0.0
+            self._prof_pre = 0.0
+            self._prof_infer = 0.0
+            self._prof_postp = 0.0
 
 
 def main(args=None):
