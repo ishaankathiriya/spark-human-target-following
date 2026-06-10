@@ -484,16 +484,15 @@ class PDFollowController(Node):
             + self._kd_lat * vel[0],
             -self._max_xy, self._max_xy)
 
-        # ── Altitude axis ─────────────────────────────────────────────────────
-        # pos[1] = centroid y = camera-down offset (positive = human below centre)
-        # vel[1] = d(y)/dt (positive = human moving downward in camera frame)
-        # alt_err > 0 → human appears lower than desired → drone is too high → descend
-        # All terms are negated: increasing camera-y means we should descend (body_up < 0)
-        alt_err  = pos[1] - self._height_off
-        body_up  = _clamp(
-            -(self._ff_alt * vel[1]         # feedforward: match vertical motion
-              + self._kp_alt * alt_err      # P:           correct height error
-              + self._kd_alt * vel[1]),     # D:           damp vertical oscillation
+        # ── Altitude axis → NED vz ───────────────────────────────────────────
+        # pos[1] = camera Y (positive = human is below image centre)
+        # Camera Y and NED Z are both positive-downward, so they align directly:
+        #   alt_err > 0 → human too far below → drone too high → descend → ned_vz > 0 ✓
+        alt_err = pos[1] - self._height_off
+        ned_vz  = _clamp(
+            self._ff_alt * vel[1]           # feedforward: match vertical motion
+            + self._kp_alt * alt_err        # P:           correct height error
+            + self._kd_alt * vel[1],        # D:           damp vertical oscillation
             -self._max_z, self._max_z)
 
         # ── Body → NED ────────────────────────────────────────────────────────
@@ -501,7 +500,7 @@ class PDFollowController(Node):
         self._publish_velocity(
             vx       = body_fwd * ch - body_right * sh,
             vy       = body_fwd * sh + body_right * ch,
-            vz       = -body_up,    # NED z is positive-down
+            vz       = ned_vz,
             yaw_rate = yaw_rate,
         )
 
