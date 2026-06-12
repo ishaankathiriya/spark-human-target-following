@@ -31,6 +31,7 @@ setup(
             'debug_logger         = htf_control.debug_logger:main',
             'hover_test           = htf_control.hover_test:main',
             'ground_truth_node    = htf_control.ground_truth_node:main',
+            'human_world_estimator = htf_control.human_world_estimator:main',
         ],
     },
 )

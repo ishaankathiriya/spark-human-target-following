@@ -19,7 +19,7 @@ class HumanTracker3DNode(Node):
         self.declare_parameter('tracker', 'bytetrack.yaml')
         self.declare_parameter('target_id', -1)
         self.declare_parameter('depth_patch_size', 5)
-        self.declare_parameter('device', 'cuda:0')   # 'cuda:0' for Jetson GPU, 'cpu' to force CPU
+        self.declare_parameter('device', 'cpu')   # 'cuda:0' for Jetson GPU, 'cpu' to force CPU
 
         model_path = self.get_parameter('model').get_parameter_value().string_value
         self.conf = self.get_parameter('confidence').get_parameter_value().double_value

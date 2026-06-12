@@ -2,12 +2,19 @@
 """
 HTF hover test node.
 
-Arms, takes off to `takeoff_altitude`, and holds position permanently.
-Does NOT follow the human — the drone stays stationary.
+Arms, takes off to `takeoff_altitude`, and holds in HOLD permanently.
 
-Purpose: verify the alpha-beta filter while the drone is not moving.
-Since the drone is stationary, relative velocity = absolute human velocity,
-making it easy to confirm filter accuracy with the debug_plotter.
+HOLD has two modes, selected by the `oscillate` parameter:
+  - oscillate=False (default): position-mode hold, drone stays stationary.
+    Purpose: verify the alpha-beta filter while the drone is not moving.
+    Since the drone is stationary, relative velocity = absolute human
+    velocity, making it easy to confirm filter accuracy with debug_plotter.
+  - oscillate=True: velocity-mode hold with a sinusoidal vx command
+    (`oscillate_amplitude` m/s, `oscillate_freq` Hz). The drone rocks back
+    and forth in place, producing significant pitch oscillation without
+    much net displacement — used to validate human_world_estimator's
+    attitude-compensated transform (human_world_meas should stay roughly
+    constant despite the drone's pitch swinging).
 
 The alpha-beta filter runs on every incoming centroid and publishes
 /htf/human_vel and /htf/human_pos every control cycle (50 Hz), even
@@ -133,11 +140,17 @@ class HoverTestNode(Node):
         self.declare_parameter('ab_alpha',            0.5)
         self.declare_parameter('ab_beta',             0.08)
         self.declare_parameter('max_plausible_speed', 8.0)
+        self.declare_parameter('oscillate',           False)  # HOLD mode: oscillate vx instead of position-hold
+        self.declare_parameter('oscillate_amplitude', 0.6)    # m/s
+        self.declare_parameter('oscillate_freq',      0.5)    # Hz
 
         self._takeoff_alt = self.get_parameter('takeoff_altitude').value
         ab_alpha          = self.get_parameter('ab_alpha').value
         ab_beta           = self.get_parameter('ab_beta').value
         max_plausible_spd = self.get_parameter('max_plausible_speed').value
+        self._oscillate   = self.get_parameter('oscillate').value
+        self._osc_amp     = self.get_parameter('oscillate_amplitude').value
+        self._osc_freq    = self.get_parameter('oscillate_freq').value
 
         if ab_beta >= 2.0 * ab_alpha:
             ab_beta = 0.99 * 2.0 * ab_alpha
@@ -183,6 +196,7 @@ class HoverTestNode(Node):
         self._hold_y         = None
         self._hold_z         = None
         self._hold_yaw       = None
+        self._hold_start_t   = None
         self._cycle          = 0
         self._last_arm_t     = 0.0
         self._prev_arm_state = -1
@@ -210,6 +224,15 @@ class HoverTestNode(Node):
                 for f in self._ab:
                     f._max_v = p.value
                 self.get_logger().info(f'max_plausible_speed → {p.value}')
+            elif p.name == 'oscillate':
+                self._oscillate = p.value
+                self.get_logger().info(f'oscillate → {p.value}')
+            elif p.name == 'oscillate_amplitude':
+                self._osc_amp = p.value
+                self.get_logger().info(f'oscillate_amplitude → {p.value}')
+            elif p.name == 'oscillate_freq':
+                self._osc_freq = p.value
+                self.get_logger().info(f'oscillate_freq → {p.value}')
         return SetParametersResult(successful=True)
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
@@ -293,21 +316,34 @@ class HoverTestNode(Node):
                 self._takeoff_x, self._takeoff_y, self._takeoff_z_ned,
                 yaw=self._local_pos.heading)
             if abs(self._local_pos.z - self._takeoff_z_ned) < self._TAKEOFF_TOL:
-                self._hold_x   = self._local_pos.x
-                self._hold_y   = self._local_pos.y
-                self._hold_z   = self._local_pos.z
-                self._hold_yaw = self._local_pos.heading
-                self._state    = _State.HOLD
-                self.get_logger().info(
-                    f'Reached {self._takeoff_alt:.1f} m. Holding. '
-                    f'Walk in front of the camera to test the filter.')
+                self._hold_x       = self._local_pos.x
+                self._hold_y       = self._local_pos.y
+                self._hold_z       = self._takeoff_z_ned
+                self._hold_yaw     = self._local_pos.heading
+                self._hold_start_t = now
+                self._state        = _State.HOLD
+                if self._oscillate:
+                    self.get_logger().info(
+                        f'Reached {self._takeoff_alt:.1f} m. Oscillating vx '
+                        f'(±{self._osc_amp:.2f} m/s @ {self._osc_freq:.2f} Hz) '
+                        f'to induce roll/pitch for the world estimator test.')
+                else:
+                    self.get_logger().info(
+                        f'Reached {self._takeoff_alt:.1f} m. Holding. '
+                        f'Walk in front of the camera to test the filter.')
             self._publish_debug(now)
             return
 
         # ── HOLD (permanent) ──────────────────────────────────────────────────
-        self._publish_ocm(position=True)
-        self._publish_position(
-            self._hold_x, self._hold_y, self._hold_z, yaw=self._hold_yaw)
+        if self._oscillate:
+            t  = now - self._hold_start_t
+            vx = self._osc_amp * math.sin(2.0 * math.pi * self._osc_freq * t)
+            self._publish_ocm(velocity=True)
+            self._publish_velocity(vx, 0.0, 0.0, 0.0)
+        else:
+            self._publish_ocm(position=True)
+            self._publish_position(
+                self._hold_x, self._hold_y, self._hold_z, yaw=self._hold_yaw)
         self._publish_debug(now)
 
     # ── Debug publisher ───────────────────────────────────────────────────────
