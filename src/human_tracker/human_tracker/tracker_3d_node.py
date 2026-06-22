@@ -146,15 +146,27 @@ class HumanTracker3DNode(Node):
 
         t1 = time.perf_counter()
 
-        results = self.model.track(
-            frame,
-            persist=True,
-            classes=[0],
-            conf=self.conf,
-            tracker=self.tracker_cfg,
-            device=self._device,
-            verbose=False,
-        )
+        if self.target_id != -1:
+            # Persistent track IDs are only needed to lock onto a specific person
+            results = self.model.track(
+                frame,
+                persist=True,
+                classes=[0],
+                conf=self.conf,
+                tracker=self.tracker_cfg,
+                device=self._device,
+                verbose=False,
+            )
+        else:
+            # Auto-select (closest to image centre) doesn't need track IDs —
+            # skip ByteTrack entirely (saves ~20% CPU) by using detection only
+            results = self.model.predict(
+                frame,
+                classes=[0],
+                conf=self.conf,
+                device=self._device,
+                verbose=False,
+            )
 
         t2 = time.perf_counter()
         spd = results[0].speed  # ms: {'preprocess', 'inference', 'postprocess'} from ultralytics
@@ -174,10 +186,10 @@ class HumanTracker3DNode(Node):
 
         if results[0].boxes is not None:
             for box in results[0].boxes:
-                if box.id is None:
+                if self.target_id != -1 and box.id is None:
                     continue
 
-                track_id = int(box.id[0])
+                track_id = int(box.id[0]) if box.id is not None else -1
                 x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
                 conf = float(box.conf[0])
                 cx = (x1 + x2) / 2.0
