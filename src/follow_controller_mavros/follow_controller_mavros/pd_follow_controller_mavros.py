@@ -17,7 +17,8 @@ import time
 from enum import IntEnum
 
 import rclpy
-from rclpy.node import Node 
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import PointStamped, Twist, PoseStamped
 from mavros_msgs.srv import CommandBool, SetMode
 from mavros_msgs.msg import State
@@ -75,8 +76,9 @@ class _State(IntEnum):
 
 # Node
 
-class PDFollowControllerMavros(Node): 
-    _PREARM_CYCLES = 100  # cycles of zero-vel before first-arm attempt (~2s at 50Hz)
+class PDFollowControllerMavros(Node):
+    _PREARM_CYCLES = 100         # PRIMING: zero-vel cycles before entering ARMING (~2s at 50Hz)
+    _ARMING_STREAM_CYCLES = 150  # ARMING: additional zero-vel cycles before first mode/arm attempt (~3s)
     _TARGET_TIMEOUT = 1.0  # seconds without detection before Follow -> HOLD
     _LOOP_DT = 0.02 # 50 Hz control loop
 
@@ -125,14 +127,17 @@ class PDFollowControllerMavros(Node):
         # [0] = lateral(x), [1] = altitude(y, updated but unused), [2] = depth(z)
         self._ab = [_AxisEstimator(ab_alpha, ab_beta, max_spd) for _ in range(3)]
 
+        # MAVROS 2.x inner UAS node exposes sensor topics with BEST_EFFORT QoS
+        _sensor_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
+
         # Subscriptions
         self.create_subscription(State, '/mavros/state', self._state_cb, 10)
-        self.create_subscription(PoseStamped, '/mavros/local_position/pose', self._pose_cb, 10)
+        self.create_subscription(PoseStamped, '/mavros/mavros/pose', self._pose_cb, _sensor_qos)
         self.create_subscription(PointStamped, '/tracker/centroid_3d', self._centroid_cb, 10)
 
-        # Pubs
-        self._vel_pub = self.create_publisher(Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
-        self._pos_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', 10)
+        # Pubs — inner UAS node topics (mavros/mavros/...)
+        self._vel_pub = self.create_publisher(Twist, '/mavros/mavros/cmd_vel_unstamped', 10)
+        self._pos_pub = self.create_publisher(PoseStamped, '/mavros/mavros/local', 10)
 
         # Service clients
         self._set_mode_cl = self.create_client(SetMode, '/mavros/set_mode')
@@ -145,6 +150,7 @@ class PDFollowControllerMavros(Node):
         self._centroid_seen = False
         self._last_detection = 0.0
         self._cycle = 0
+        self._arming_stream = 0
         self._last_arm_t = 0.0
         self._hold_pose = None        # latched ENU PoseStamped for HOLd mode
         self._state = _State.PRIMING
@@ -199,22 +205,24 @@ class PDFollowControllerMavros(Node):
                 
             return
 
-        # ARMING: retry set_mode + arm every 1s until both confirmed
+        # ARMING: stream zero vel for _ARMING_STREAM_CYCLES, then retry set_mode+arm every 1s
         if self._state == _State.ARMING:
             self._publish_vel(0.0, 0.0, 0.0, 0.0)
             if is_armed and in_ob:
                 self._enter_hold('armed and in OFFBOARD')
                 return
+            if self._arming_stream < self._ARMING_STREAM_CYCLES:
+                self._arming_stream += 1
+                if self._arming_stream == self._ARMING_STREAM_CYCLES:
+                    self.get_logger().info('Arming stream done - sending mode/arm commands')
+                return
             if now - self._last_arm_t > 1.0:
                 self._last_arm_t = now
                 self.get_logger().info(f'Arm attempt - armed={is_armed}, mode={self._fc_state.mode}')
-
                 if self._set_mode_cl.service_is_ready():
                     req = SetMode.Request()
                     req.custom_mode = 'OFFBOARD'
                     self._set_mode_cl.call_async(req)
-                    self.get_logger().info('Entered mode switch loop')
-                
                 if self._arming_cl.service_is_ready():
                     req = CommandBool.Request()
                     req.value = True

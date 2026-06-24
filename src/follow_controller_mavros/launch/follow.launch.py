@@ -35,13 +35,12 @@ def generate_launch_description():
                     # bug in several plugins (companion_process_status, debug_value, ...)
                     # that causes a crash. Loading only required plugins avoids all of them.
                     'plugin_allowlist': [
-                        'command',        # /mavros/cmd/arming service
-                        'sys_status',     # /mavros/state + /mavros/set_mode service
-                        'sys_time',       # time sync with FC
-                        'local_position', # /mavros/local_position/pose
-                        'setpoint_velocity',  # /mavros/setpoint_velocity/cmd_vel_unstamped
-                        'setpoint_position',  # /mavros/setpoint_position/local
-                        'vision_pose',    # forwards PoseStamped → VISION_POSITION_ESTIMATE to EKF2
+                        'command',           # arming service at /mavros/mavros/arming
+                        'sys_status',        # /mavros/state + /mavros/set_mode
+                        'sys_time',          # time sync with FC
+                        'local_position',    # pose at /mavros/mavros/pose
+                        'setpoint_velocity', # cmd_vel at /mavros/mavros/cmd_vel_unstamped
+                        'setpoint_position', # position setpoint at /mavros/mavros/local
                     ],
                 },
             ],
