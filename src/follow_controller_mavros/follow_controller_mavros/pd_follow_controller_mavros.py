@@ -254,7 +254,11 @@ class PDFollowControllerMavros(Node):
         bearing = math.atan2(pos[0], pos[2])
         if abs(bearing) < self._yaw_db:
             bearing = 0.0
-        yaw_rate = _clamp(self._kp_yaw * bearing, -self._max_yaw, self._max_yaw)
+        # Negative sign: camera x > 0 means human is to the RIGHT → drone must turn RIGHT
+        # (CW from above). In ROS, CW = negative angular.z. MAVROS then sends positive
+        # yaw_rate to PX4 NED, which is CW = right turn. Confirmed from setpoint_velocity.cpp
+        # line 119: mavlink_yaw_rate = -angular_z.
+        yaw_rate = _clamp(-self._kp_yaw * bearing, -self._max_yaw, self._max_yaw)
 
         lat_p      = pos[0] if abs(pos[0]) >= self._lat_db else 0.0
         body_right = _clamp(

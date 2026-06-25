@@ -13,9 +13,10 @@ def generate_launch_description():
     custom_config = os.path.join(pkg_share, 'config', 'px4_custom.yaml')
 
     return LaunchDescription([
-        DeclareLaunchArgument('fcu_url',    default_value='serial:///dev/ttyTHS1:921600'),
-        DeclareLaunchArgument('gcs_url',    default_value='udp://@10.61.52.76:14550'),
-        DeclareLaunchArgument('target_alt', default_value='0.5'),
+        DeclareLaunchArgument('fcu_url',     default_value='serial:///dev/ttyTHS1:921600'),
+        DeclareLaunchArgument('gcs_url',     default_value='udp://@10.61.52.76:14550'),
+        DeclareLaunchArgument('takeoff_alt', default_value='1.5'),
+        DeclareLaunchArgument('active_s',    default_value='20.0'),
 
         Node(
             package='mavros',
@@ -33,8 +34,8 @@ def generate_launch_description():
                         'sys_status',        # /mavros/state + /mavros/set_mode
                         'sys_time',
                         'setpoint_velocity', # /mavros/setpoint_velocity/cmd_vel_unstamped
-                        'setpoint_position', # /mavros/setpoint_position/local  (HOLD in follow controller)
-                        'local_position',    # /mavros/local_position/pose   (altitude feedback)
+                        'setpoint_position', # /mavros/setpoint_position/local
+                        'local_position',    # /mavros/local_position/pose
                     ],
                 },
             ],
@@ -46,7 +47,8 @@ def generate_launch_description():
             executable='flight_manager',
             name='flight_manager',
             parameters=[{
-                'target_alt': LaunchConfiguration('target_alt'),
+                'takeoff_alt': LaunchConfiguration('takeoff_alt'),
+                'active_s':    LaunchConfiguration('active_s'),
             }],
             output='screen',
         ),
