@@ -22,7 +22,7 @@ class OffboardModeTest(Node):
     def __init__(self):
         super().__init__('offboard_mode_test')
         self.create_subscription(State, '/mavros/state', self._state_cb, 10)
-        self._vel_pub = self.create_publisher(Twist, '/mavros/mavros/cmd_vel_unstamped', 10)
+        # self._vel_pub = self.create_publisher(Twist, '/mavros/mavros/cmd_vel_unstamped', 10)
         self._set_mode_cl = self.create_client(SetMode, '/mavros/set_mode')
 
         self._fc_state = State()
@@ -42,8 +42,8 @@ class OffboardModeTest(Node):
             self._mode_sent = False
             self.get_logger().warn(f'Lost OFFBOARD → {msg.mode} — will retry')
 
-    def _pub_zero(self):
-        self._vel_pub.publish(Twist())
+    # def _pub_zero(self):
+    #     self._vel_pub.publish(Twist())
 
     def _loop(self):
         pass

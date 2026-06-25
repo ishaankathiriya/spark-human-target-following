@@ -22,9 +22,9 @@ class OffboardVelDebug(Node):
         super().__init__('offboard_vel_debug')
 
         self.create_subscription(State, '/mavros/state', self._state_cb, 10)
-        self._vel_pub = self.create_publisher(Twist, '/mavros/mavros/cmd_vel_unstamped', 10)
+        self._vel_pub = self.create_publisher(Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
         self._set_mode_cl = self.create_client(SetMode, '/mavros/set_mode')
-        self._arming_cl = self.create_client(CommandBool, '/mavros/mavros/arming')
+        self._arming_cl = self.create_client(CommandBool, '/mavros/cmd/arming')
 
         self._fc_state = State()
         self._start_t = time.monotonic()

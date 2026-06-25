@@ -16,7 +16,7 @@ class ArmNode(Node):
     def __init__(self):
         super().__init__('arm_node')
         self.create_subscription(State, '/mavros/state', self._state_cb, 10)
-        self._arming_cl = self.create_client(CommandBool, '/mavros/mavros/arming')
+        self._arming_cl = self.create_client(CommandBool, '/mavros/cmd/arming')
         self._fc_state = State()
         self._arm_sent = False
         self.get_logger().info('ArmNode ready — waiting for OFFBOARD confirmation before arming')
