@@ -15,7 +15,9 @@ setup(
             'launch/vel_debug.launch.py',
             'launch/offboard_mode_test.launch.py',
             'launch/offboard_arm_test.launch.py',
-            'launch/bridge_logger.launch.py',
+        ]),
+        ('share/' + package_name + '/config', [
+            'config/px4_custom.yaml',
         ]),
     ],
     install_requires=['setuptools'],
@@ -37,7 +39,7 @@ setup(
             'offboard_mode_test = follow_controller_mavros.offboard_mode_test:main',
             'arm_node = follow_controller_mavros.arm_node:main',
             'fake_pose_pub = follow_controller_mavros.fake_pose_pub:main',
-            'bridge_logger = follow_controller_mavros.bridge_logger:main',
+            
         ],
     },
 )

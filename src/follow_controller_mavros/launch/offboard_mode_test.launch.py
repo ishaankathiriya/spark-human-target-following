@@ -7,8 +7,10 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    mavros_share = get_package_share_directory('mavros')
-    px4_config = os.path.join(mavros_share, 'launch', 'px4_config.yaml')
+    mavros_share  = get_package_share_directory('mavros')
+    pkg_share     = get_package_share_directory('follow_controller_mavros')
+    px4_config    = os.path.join(mavros_share, 'launch', 'px4_config.yaml')
+    custom_config = os.path.join(pkg_share, 'config', 'px4_custom.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('fcu_url', default_value='serial:///dev/ttyTHS1:921600'),
@@ -17,9 +19,10 @@ def generate_launch_description():
         Node(
             package='mavros',
             executable='mavros_node',
-            name='mavros',
+            # name='mavros',
             parameters=[
-                px4_config,
+                px4_config,     # MAVROS defaults
+                custom_config,  # our overrides (plugin params)
                 {
                     'fcu_url': LaunchConfiguration('fcu_url'),
                     'gcs_url': LaunchConfiguration('gcs_url'),
@@ -30,6 +33,9 @@ def generate_launch_description():
                         'sys_status',
                         'sys_time',
                         'setpoint_velocity',
+                        'setpoint_position',
+                        'setpoint_attitude',
+                        'local_position',
                         'setpoint_raw',
                     ],
                 },

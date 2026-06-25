@@ -1,0 +1,69 @@
+# Custom MAVROS configuration for spark-human-target-following.
+# Passed alongside the default px4_config.yaml — values here take precedence.
+#
+# /** wildcard matches any node namespace so these params apply regardless
+# of how MAVROS is namespaced.
+#
+# Current plugin allowlist (offboard_mode_test.launch.py):
+#   command, sys_status, sys_time, setpoint_velocity,
+#   setpoint_position, setpoint_attitude, local_position
+
+# ── global ────────────────────────────────────────────────────────────────────
+/**:
+  ros__parameters:
+    startup_px4_usb_quirk: false
+
+# ── sys_status ────────────────────────────────────────────────────────────────
+/**/sys:
+  ros__parameters:
+    min_voltage: [10.0]       # diagnostics min voltage (single battery)
+    disable_diag: false
+    heartbeat_rate: 1.0       # Hz — MAVROS → FC heartbeat
+    conn_timeout: 10.0        # seconds before connection declared lost
+
+# ── sys_time ──────────────────────────────────────────────────────────────────
+/**/time:
+  ros__parameters:
+    time_ref_source: "fcu"
+    timesync_mode: MAVLINK
+    timesync_avg_alpha: 0.6
+    timesync_rate: 10.0       # Hz
+    system_time_rate: 1.0     # Hz
+
+# ── command ───────────────────────────────────────────────────────────────────
+/**/cmd:
+  ros__parameters:
+    use_comp_id_system_control: false
+
+# ── local_position ────────────────────────────────────────────────────────────
+/**/local_position:
+  ros__parameters:
+    frame_id: "map"
+    tf.send: false
+    tf.frame_id: "map"
+    tf.child_frame_id: "base_link"
+    tf.send_fcu: false
+
+# ── setpoint_velocity ─────────────────────────────────────────────────────────
+/**/setpoint_velocity:
+  ros__parameters:
+    mav_frame: LOCAL_NED      # frame used for SET_POSITION_TARGET_LOCAL_NED
+
+# ── setpoint_position ─────────────────────────────────────────────────────────
+/**/setpoint_position:
+  ros__parameters:
+    tf.listen: false
+    tf.frame_id: "map"
+    tf.child_frame_id: "target_position"
+    tf.rate_limit: 50.0
+    mav_frame: LOCAL_NED
+
+# ── setpoint_attitude ─────────────────────────────────────────────────────────
+/**/setpoint_attitude:
+  ros__parameters:
+    reverse_thrust: false
+    use_quaternion: false
+    tf.listen: false
+    tf.frame_id: "map"
+    tf.child_frame_id: "target_attitude"
+    tf.rate_limit: 50.0
