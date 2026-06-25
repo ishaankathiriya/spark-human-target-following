@@ -36,7 +36,7 @@ class FlightManager(Node):
     def __init__(self):
         super().__init__('flight_manager')
 
-        self.declare_parameter('takeoff_alt', 1.5)
+        self.declare_parameter('takeoff_alt', 2.0)
         self.declare_parameter('active_s',    20.0)
         self._takeoff_alt = self.get_parameter('takeoff_alt').value
         self._active_s    = self.get_parameter('active_s').value
@@ -164,11 +164,16 @@ class FlightManager(Node):
                     self.get_logger().info('Arm requested')
                 return
 
-            # Armed — start active window immediately (no altitude wait)
+            # Wait until at takeoff altitude
+            if self._current_z < self._gz + self._takeoff_alt - _ALT_THRESH:
+                return
+
+            # Hover reached — signal application node and start timer
             self._hover_t = now
             self._ready_pub.publish(Bool(data=True))
             self.get_logger().info(
-                f'Armed — /flight_ready published, {self._active_s} s active window started')
+                f'Hover at {self._current_z:.2f} m — /flight_ready published, '
+                f'{self._active_s} s active window started')
             return
 
         # ── Hover / Active window ─────────────────────────────────────────────

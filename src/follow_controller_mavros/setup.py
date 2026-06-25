@@ -13,6 +13,7 @@ setup(
         ('share/' + package_name + '/launch', [
             'launch/bringup.launch.py',
             'launch/follow.launch.py',
+            'launch/circle.launch.py',
             'launch/vel_debug.launch.py',
             'launch/offboard_mode_test.launch.py',
             'launch/offboard_arm_test.launch.py',
@@ -41,7 +42,7 @@ setup(
             'arm_node = follow_controller_mavros.arm_node:main',
             'fake_pose_pub = follow_controller_mavros.fake_pose_pub:main',
             'flight_manager = follow_controller_mavros.flight_manager:main',
-
+            'circle_node = follow_controller_mavros.circle_node:main',
         ],
     },
 )
