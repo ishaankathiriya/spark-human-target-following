@@ -8,8 +8,9 @@ State machine: HOLD -> FOLLOW
 Arming, OFFBOARD switch, and takeoff are handled by flight_manager.
 This node idles until it receives /flight_ready True, then takes over setpoints.
 
-Altitude control disabled — camera Y pitch-coupling makes it unreliable
-on a fixed-mount camera. FC altitude hold (linear.z=0) is used instead.
+Altitude control: averages first alt_calib_n centroid Y readings to lock a
+fixed camera-Y reference. PD controller drives vz toward that reference + offset.
+Reference is frozen so drone pitch doesn't fight itself via camera projection.
 """
 
 import math
@@ -98,6 +99,12 @@ class PDFollowControllerMavros(Node):
         self.declare_parameter('kd_lat',              0.0)
         self.declare_parameter('lat_deadband',        0.08)
         self.declare_parameter('lookahead_t',         0.4)
+        self.declare_parameter('alt_offset',          0.0)
+        self.declare_parameter('kp_z',                0.4)
+        self.declare_parameter('kd_z',                0.2)
+        self.declare_parameter('ff_z',                0.0)
+        self.declare_parameter('max_z_speed',         0.5)
+        self.declare_parameter('alt_calib_n',         5)
 
         self._follow_dist = self.get_parameter('follow_distance').value
         self._max_xy      = self.get_parameter('max_xy_speed').value
@@ -115,12 +122,18 @@ class PDFollowControllerMavros(Node):
         self._kd_lat      = self.get_parameter('kd_lat').value
         self._lat_db      = self.get_parameter('lat_deadband').value
         self._lookahead   = self.get_parameter('lookahead_t').value
+        self._alt_offset  = self.get_parameter('alt_offset').value
+        self._kp_z        = self.get_parameter('kp_z').value
+        self._kd_z        = self.get_parameter('kd_z').value
+        self._ff_z        = self.get_parameter('ff_z').value
+        self._max_z       = self.get_parameter('max_z_speed').value
+        self._alt_calib_n = int(self.get_parameter('alt_calib_n').value)
 
         if ab_beta >= 2.0 * ab_alpha:
             ab_beta = 0.99 * 2.0 * ab_alpha
             self.get_logger().warn(f'ab_beta clamped to {ab_beta:.3f}')
 
-        # [0] = lateral(x), [1] = altitude(y, updated but unused), [2] = depth(z)
+        # [0] = lateral(x), [1] = altitude(y, cam positive-down), [2] = depth(z)
         self._ab = [_AxisEstimator(ab_alpha, ab_beta, max_spd) for _ in range(3)]
 
         # QoS profiles
@@ -150,6 +163,8 @@ class PDFollowControllerMavros(Node):
         self._hold_pose      = None
         self._state          = _State.HOLD
         self._flight_ready   = False
+        self._calib_samples  = []
+        self._target_cam_y   = None  # fixed after first alt_calib_n detections
 
         self.create_timer(self._LOOP_DT, self._control_loop)
         self.get_logger().info(
@@ -178,10 +193,18 @@ class PDFollowControllerMavros(Node):
     def _centroid_cb(self, msg: PointStamped):
         t = time.monotonic()
         self._ab[0].update(msg.point.x, t)
-        self._ab[1].update(msg.point.y, t)  # altitude — updated but not used in control
+        self._ab[1].update(msg.point.y, t)
         self._ab[2].update(msg.point.z, t)
         self._centroid_seen  = True
         self._last_detection = t
+        if self._target_cam_y is None:
+            self._calib_samples.append(msg.point.y)
+            if len(self._calib_samples) >= self._alt_calib_n:
+                self._target_cam_y = sum(self._calib_samples) / len(self._calib_samples)
+                self.get_logger().info(
+                    f'Alt reference locked: cam_y={self._target_cam_y:.3f} m  '
+                    f'offset={self._alt_offset:.2f} m  '
+                    f'desired_cam_y={self._target_cam_y + self._alt_offset:.3f} m')
 
     def _ready_cb(self, msg: Bool):
         if msg.data and not self._flight_ready:
@@ -266,7 +289,18 @@ class PDFollowControllerMavros(Node):
             -self._max_xy, self._max_xy,
         )
 
-        body_up = 0.0  # altitude held by FC
+        # Camera Y is positive-downward; desired_cam_y > current means human too high → go down.
+        # error = desired - pos[1], so positive error → go up (positive vz in ENU). ✓
+        # Derivative of error = -vel[1], hence the subtraction.
+        if self._target_cam_y is not None:
+            desired_cam_y = self._target_cam_y + self._alt_offset
+            error_z = desired_cam_y - pos[1]
+            body_up = _clamp(
+                self._kp_z * error_z - (self._ff_z + self._kd_z) * vel[1],
+                -self._max_z, self._max_z,
+            )
+        else:
+            body_up = 0.0  # not calibrated yet — FC holds altitude
 
         cy, sy = math.cos(self._yaw_enu), math.sin(self._yaw_enu)
         self._publish_vel(

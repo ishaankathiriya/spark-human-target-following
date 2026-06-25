@@ -23,6 +23,10 @@ def generate_launch_description():
         DeclareLaunchArgument('kp_dist',         default_value='0.5'),
         DeclareLaunchArgument('kd_dist',         default_value='0.3'),
         DeclareLaunchArgument('kp_yaw',          default_value='1.5'),
+        DeclareLaunchArgument('alt_offset',      default_value='0.0'),
+        DeclareLaunchArgument('kp_z',            default_value='0.4'),
+        DeclareLaunchArgument('kd_z',            default_value='0.2'),
+        DeclareLaunchArgument('max_z_speed',     default_value='0.5'),
 
         # RealSense camera + YOLO tracker → publishes /tracker/centroid_3d
         IncludeLaunchDescription(
@@ -45,6 +49,10 @@ def generate_launch_description():
                 'kp_dist':         LaunchConfiguration('kp_dist'),
                 'kd_dist':         LaunchConfiguration('kd_dist'),
                 'kp_yaw':          LaunchConfiguration('kp_yaw'),
+                'alt_offset':      LaunchConfiguration('alt_offset'),
+                'kp_z':            LaunchConfiguration('kp_z'),
+                'kd_z':            LaunchConfiguration('kd_z'),
+                'max_z_speed':     LaunchConfiguration('max_z_speed'),
             }],
             output='screen',
         ),
