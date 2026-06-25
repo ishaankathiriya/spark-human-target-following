@@ -218,6 +218,7 @@ class PDFollowControllerMavros(Node):
             if self._state != _State.HOLD:
                 self._enter_hold('target lost')
             if self._hold_pose is not None:
+                self._hold_pose.header.stamp = self.get_clock().now().to_msg()
                 self._pos_pub.publish(self._hold_pose)
             else:
                 self._publish_vel(0.0, 0.0, 0.0)  # fallback until pose arrives
@@ -241,7 +242,6 @@ class PDFollowControllerMavros(Node):
         pos = [self._ab[i].predict(now)[0] for i in range(3)]
         vel = [self._ab[i].predict(now)[1] for i in range(3)]
 
-        dist_err      = pos[2] - self._follow_dist
         pred_dist_err = (pos[2] + vel[2] * self._lookahead) - self._follow_dist
         kp = self._kp_dist * 2.0 if pred_dist_err < 0 else self._kp_dist
         kd = self._kd_dist * 2.0 if pred_dist_err < 0 else self._kd_dist
