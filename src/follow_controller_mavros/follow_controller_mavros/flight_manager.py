@@ -27,7 +27,7 @@ from mavros_msgs.msg import State
 _PRIME_S     = 2.0   # seconds of position setpoints before requesting OFFBOARD
 _ALT_THRESH  = 0.15  # metres tolerance to consider "at altitude"
 _RETRY_S     = 5.0   # OFFBOARD retry interval if not confirmed
-_VEL_TIMEOUT = 0.5   # seconds without velocity msg = velocity considered stopped
+_VEL_TIMEOUT = 3.0   # seconds without velocity msg = velocity considered stopped
 
 
 class FlightManager(Node):
@@ -36,8 +36,8 @@ class FlightManager(Node):
     def __init__(self):
         super().__init__('flight_manager')
 
-        self.declare_parameter('takeoff_alt', 2.0)
-        self.declare_parameter('active_s',    20.0)
+        self.declare_parameter('takeoff_alt', 1.5)
+        self.declare_parameter('active_s',    120.0)
         self._takeoff_alt = self.get_parameter('takeoff_alt').value
         self._active_s    = self.get_parameter('active_s').value
 

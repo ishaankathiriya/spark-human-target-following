@@ -25,8 +25,8 @@ def generate_launch_description():
                 custom_config,  # our overrides (plugin params)
                 {
                     'fcu_url': LaunchConfiguration('fcu_url'),
-                    # 'gcs_url': LaunchConfiguration('gcs_url'),
-                    'gcs_url' : 'udp://@10.205.72.219:14550',
+                    'gcs_url': LaunchConfiguration('gcs_url'),
+                    # 'gcs_url' : 'udp://@10.205.72.219:14550',
                     'target_system_id': 1,
                     'target_component_id': 1,
                     'plugin_allowlist': [

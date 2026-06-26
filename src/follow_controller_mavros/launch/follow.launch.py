@@ -23,7 +23,7 @@ def generate_launch_description():
         DeclareLaunchArgument('kp_dist',         default_value='0.5'),
         DeclareLaunchArgument('kd_dist',         default_value='0.3'),
         DeclareLaunchArgument('kp_yaw',          default_value='1.5'),
-        DeclareLaunchArgument('alt_offset',      default_value='0.0'),
+        DeclareLaunchArgument('alt_offset',      default_value='0.1'),
         DeclareLaunchArgument('kp_z',            default_value='0.4'),
         DeclareLaunchArgument('kd_z',            default_value='0.2'),
         DeclareLaunchArgument('max_z_speed',     default_value='0.5'),

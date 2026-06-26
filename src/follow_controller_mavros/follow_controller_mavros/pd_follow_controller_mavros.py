@@ -84,7 +84,7 @@ class PDFollowControllerMavros(Node):
 
         # Parameters
         self.declare_parameter('follow_distance',     2.5)
-        self.declare_parameter('max_xy_speed',        1.5)
+        self.declare_parameter('max_xy_speed',        0.8)
         self.declare_parameter('max_yaw_rate',        0.8)
         self.declare_parameter('ab_alpha',            0.5)
         self.declare_parameter('ab_beta',             0.08)
@@ -99,7 +99,7 @@ class PDFollowControllerMavros(Node):
         self.declare_parameter('kd_lat',              0.0)
         self.declare_parameter('lat_deadband',        0.08)
         self.declare_parameter('lookahead_t',         0.4)
-        self.declare_parameter('alt_offset',          0.0)
+        self.declare_parameter('alt_offset',          0.1)
         self.declare_parameter('kp_z',                0.4)
         self.declare_parameter('kd_z',                0.2)
         self.declare_parameter('ff_z',                0.0)
@@ -289,7 +289,7 @@ class PDFollowControllerMavros(Node):
             -self._max_xy, self._max_xy,
         )
 
-        # Camera Y is positive-downward; desired_cam_y > current means human too high → go down.
+        # Camera Y is positive-downward; 
         # error = desired - pos[1], so positive error → go up (positive vz in ENU). ✓
         # Derivative of error = -vel[1], hence the subtraction.
         if self._target_cam_y is not None:

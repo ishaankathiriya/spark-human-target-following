@@ -15,8 +15,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('fcu_url',     default_value='serial:///dev/ttyTHS1:921600'),
         DeclareLaunchArgument('gcs_url',     default_value='udp://@10.61.52.76:14550'),
-        DeclareLaunchArgument('takeoff_alt', default_value='2.0'),
-        DeclareLaunchArgument('active_s',    default_value='20.0'),
+        DeclareLaunchArgument('takeoff_alt', default_value='1.5'),
+        DeclareLaunchArgument('active_s',    default_value='120.0'),
 
         Node(
             package='mavros',
