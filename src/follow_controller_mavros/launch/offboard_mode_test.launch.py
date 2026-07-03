@@ -14,7 +14,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('fcu_url', default_value='serial:///dev/ttyTHS1:921600'),
-        DeclareLaunchArgument('gcs_url', default_value='udp://@10.61.52.76:14550'),
+        DeclareLaunchArgument('gcs_url', default_value='udp://@10.205.72.162:14550'),
 
         Node(
             package='mavros',
