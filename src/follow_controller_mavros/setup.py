@@ -14,6 +14,8 @@ setup(
             'launch/bringup.launch.py',
             'launch/follow.launch.py',
             'launch/circle.launch.py',
+            'launch/circle_pos.launch.py',
+            'launch/rect_pos.launch.py',
             'launch/vel_debug.launch.py',
             'launch/offboard_mode_test.launch.py',
             'launch/offboard_arm_test.launch.py',
@@ -43,6 +45,8 @@ setup(
             'fake_pose_pub = follow_controller_mavros.fake_pose_pub:main',
             'flight_manager = follow_controller_mavros.flight_manager:main',
             'circle_node = follow_controller_mavros.circle_node:main',
+            'circle_pos_node = follow_controller_mavros.circle_pos_node:main',
+            'rect_pos_node = follow_controller_mavros.rect_pos_node:main',
         ],
     },
 )

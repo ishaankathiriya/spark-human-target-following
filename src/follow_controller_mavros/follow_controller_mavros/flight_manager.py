@@ -28,6 +28,7 @@ from mavros_msgs.msg import State
 _PRIME_S     = 2.0   # seconds of position setpoints before requesting OFFBOARD
 _ALT_THRESH  = 0.15  # metres tolerance to consider "at altitude"
 _VEL_TIMEOUT = 3.0   # seconds without velocity msg = velocity considered stopped
+_POS_TIMEOUT = 3.0   # seconds without /ext_pos_active heartbeat = position controller stopped
 
 
 class FlightManager(Node):
@@ -56,6 +57,7 @@ class FlightManager(Node):
         self.create_subscription(PoseStamped, '/mavros/local_position/pose', self._pose_cb,  sensor_qos)
         self.create_subscription(Twist,       '/mavros/setpoint_velocity/cmd_vel_unstamped',
                                   self._vel_cb, sensor_qos)
+        self.create_subscription(Bool,        '/ext_pos_active',             self._pos_ext_cb, 10)
 
         self._set_mode_cl = self.create_client(SetMode,     '/mavros/set_mode')
         self._arming_cl   = self.create_client(CommandBool, '/mavros/cmd/arming')
@@ -66,9 +68,10 @@ class FlightManager(Node):
 
         self._fc_state   = State()
         self._arm_sent   = False
-        self._hover_t    = None  # set when hover altitude reached
-        self._last_vel_t = None  # set when first velocity setpoint received
-        self._landed     = False
+        self._hover_t        = None  # set when hover altitude reached
+        self._last_vel_t     = None  # set when first velocity setpoint received
+        self._last_pos_ext_t = None  # set when /ext_pos_active heartbeat received
+        self._landed         = False
 
         self.create_timer(self._LOOP_DT, self._loop)
         self.get_logger().info(
@@ -102,6 +105,9 @@ class FlightManager(Node):
 
     def _vel_cb(self, _msg):
         self._last_vel_t = time.monotonic()
+
+    def _pos_ext_cb(self, _msg):
+        self._last_pos_ext_t = time.monotonic()
 
     def _request_offboard(self):
         self._prime_timer.cancel()  # fire once only
@@ -164,13 +170,17 @@ class FlightManager(Node):
             self._land()
             return
 
-        vel_active = (self._last_vel_t is not None and
-                      now - self._last_vel_t < _VEL_TIMEOUT)
+        vel_active     = (self._last_vel_t is not None and
+                          now - self._last_vel_t < _VEL_TIMEOUT)
+        pos_ext_active = (self._last_pos_ext_t is not None and
+                          now - self._last_pos_ext_t < _POS_TIMEOUT)
+        ext_active     = vel_active or pos_ext_active
+        any_ext_seen   = self._last_vel_t is not None or self._last_pos_ext_t is not None
 
-        if vel_active:
-            pass  # application node is publishing velocity — don't interfere
-        elif self._last_vel_t is not None:
-            self.get_logger().info('Velocity setpoints stopped — landing')
+        if ext_active:
+            pass  # external controller is active — don't interfere
+        elif any_ext_seen:
+            self.get_logger().info('External controller stopped — landing')
             self._land()
         else:
             self._pub_pos(self._gx, self._gy, self._gz + self._takeoff_alt)
