@@ -104,7 +104,9 @@ class PDFollowControllerMavros(Node):
         self.declare_parameter('kd_z',                0.2)
         self.declare_parameter('ff_z',                0.0)
         self.declare_parameter('max_z_speed',         0.5)
-        self.declare_parameter('alt_calib_n',         5)
+        self.declare_parameter('alt_calib_n',           5)
+        self.declare_parameter('max_detection_depth',  5.0)
+        self.declare_parameter('no_target_timeout',    5.0)
 
         self._follow_dist = self.get_parameter('follow_distance').value
         self._max_xy      = self.get_parameter('max_xy_speed').value
@@ -127,7 +129,9 @@ class PDFollowControllerMavros(Node):
         self._kd_z        = self.get_parameter('kd_z').value
         self._ff_z        = self.get_parameter('ff_z').value
         self._max_z       = self.get_parameter('max_z_speed').value
-        self._alt_calib_n = int(self.get_parameter('alt_calib_n').value)
+        self._alt_calib_n       = int(self.get_parameter('alt_calib_n').value)
+        self._max_depth         = self.get_parameter('max_detection_depth').value
+        self._no_target_timeout = self.get_parameter('no_target_timeout').value
 
         if ab_beta >= 2.0 * ab_alpha:
             ab_beta = 0.99 * 2.0 * ab_alpha
@@ -151,16 +155,17 @@ class PDFollowControllerMavros(Node):
         self.create_subscription(Bool,         '/flight_ready',               self._ready_cb,    _latch_qos)
 
         # Publishers
-        self._vel_pub = self.create_publisher(Twist,       '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
-        self._pos_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local',             10)
+        self._vel_pub  = self.create_publisher(Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
+        # self._body_pub = self.create_publisher(Twist, '/follow_controller/body_vel', 10)
 
         # Internal state
         self._fc_state       = State()
         self._pose_enu       = None
         self._yaw_enu        = 0.0
-        self._centroid_seen  = False
+        self._ever_detected  = False
         self._last_detection = 0.0
-        self._hold_pose      = None
+        self._lost_t         = None
+        self._land_logged    = False
         self._state          = _State.HOLD
         self._flight_ready   = False
         self._calib_samples  = []
@@ -191,11 +196,13 @@ class PDFollowControllerMavros(Node):
         )
 
     def _centroid_cb(self, msg: PointStamped):
+        if msg.point.z > self._max_depth:
+            return  # ignore detections beyond max range
         t = time.monotonic()
         self._ab[0].update(msg.point.x, t)
         self._ab[1].update(msg.point.y, t)
         self._ab[2].update(msg.point.z, t)
-        self._centroid_seen  = True
+        self._ever_detected  = True
         self._last_detection = t
         if self._target_cam_y is None:
             self._calib_samples.append(msg.point.y)
@@ -209,14 +216,14 @@ class PDFollowControllerMavros(Node):
     def _ready_cb(self, msg: Bool):
         if msg.data and not self._flight_ready:
             self._flight_ready = True
-            self._enter_hold('flight manager handed off')
-            self.get_logger().info('Flight ready — taking over setpoints from flight manager')
+            self.get_logger().info(
+                'Flight ready — waiting for first detection before taking setpoints')
 
     # Control loop (50 Hz)
 
     def _control_loop(self):
         if not self._flight_ready:
-            return  # flight_manager is still publishing setpoints
+            return
 
         now = time.monotonic()
 
@@ -229,35 +236,40 @@ class PDFollowControllerMavros(Node):
         #     self._publish_vel(0.0, 0.0, 0.0)
         #     return
 
-        has_target = (self._centroid_seen and
+        has_target = (self._ever_detected and
                       now - self._last_detection < self._TARGET_TIMEOUT)
 
         if has_target:
             if self._state != _State.FOLLOW:
-                self._state = _State.FOLLOW
-                self.get_logger().info('Target acquired — entering FOLLOW')
+                self._state       = _State.FOLLOW
+                self._lost_t      = None
+                self._land_logged = False
+                self.get_logger().info('Target acquired — FOLLOW')
             self._follow_target(now)
+            return
+
+        # No target
+        if not self._ever_detected:
+            return  # flight_manager controls until first detection
+
+        # Lost target after at least one detection
+        if self._state == _State.FOLLOW:
+            self._state  = _State.HOLD
+            self._lost_t = now
+            self.get_logger().warn('Target lost — hovering (zero vel)')
+        elif self._lost_t is None:
+            self._lost_t = now  # guard: ever_detected went True but FOLLOW was never entered
+
+        elapsed = now - self._lost_t
+        if elapsed < self._no_target_timeout:
+            self._publish_vel(0.0, 0.0, 0.0)
         else:
-            if self._state != _State.HOLD:
-                self._enter_hold('target lost')
-            if self._hold_pose is not None:
-                self._hold_pose.header.stamp = self.get_clock().now().to_msg()
-                self._pos_pub.publish(self._hold_pose)
-            else:
-                self._publish_vel(0.0, 0.0, 0.0)  # fallback until pose arrives
-
-    # HOLD helper
-
-    def _enter_hold(self, reason=''):
-        if self._pose_enu is not None:
-            self._hold_pose = self._pose_enu
-        self._state = _State.HOLD
-        if self._hold_pose is not None:
-            p = self._hold_pose.pose.position
-            self.get_logger().info(
-                f'HOLD ({reason}) — ENU ({p.x:.2f}, {p.y:.2f}, {p.z:.2f}) '
-                f'yaw={math.degrees(self._yaw_enu):.1f}°'
-            )
+            if not self._land_logged:
+                self.get_logger().warn(
+                    f'No target for {elapsed:.1f}s — stopping setpoints, '
+                    f'flight_manager will AUTO.LAND')
+                self._land_logged = True
+            # publish nothing — flight_manager VEL_TIMEOUT → AUTO.LAND
 
     # PD follow
 
@@ -301,6 +313,12 @@ class PDFollowControllerMavros(Node):
             )
         else:
             body_up = 0.0  # not calibrated yet — FC holds altitude
+
+        # bmsg = Twist()
+        # bmsg.linear.x = float(body_fwd)
+        # bmsg.linear.y = float(body_right)
+        # bmsg.linear.z = float(body_up)
+        # self._body_pub.publish(bmsg)
 
         cy, sy = math.cos(self._yaw_enu), math.sin(self._yaw_enu)
         self._publish_vel(
