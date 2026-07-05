@@ -73,7 +73,7 @@ class PDFollowXYNode(Node):
         super().__init__('pd_follow_xy')
 
         self.declare_parameter('follow_distance',     2.5)
-        self.declare_parameter('max_xy_speed',        0.8)
+        self.declare_parameter('max_xy_speed',        0.5)
         self.declare_parameter('ab_alpha',            0.5)
         self.declare_parameter('ab_beta',             0.08)
         self.declare_parameter('max_plausible_speed', 8.0)
@@ -84,7 +84,7 @@ class PDFollowXYNode(Node):
         self.declare_parameter('kp_lat',              0.0)
         self.declare_parameter('kd_lat',              0.0)
         self.declare_parameter('lat_deadband',        0.08)
-        self.declare_parameter('lookahead_t',         0.4)
+        self.declare_parameter('lookahead_t',         0.0)
         self.declare_parameter('max_detection_depth', 5.0)
         self.declare_parameter('no_target_timeout',   5.0)
 

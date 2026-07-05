@@ -18,7 +18,7 @@ def generate_launch_description():
 
         # Controller args
         DeclareLaunchArgument('follow_distance', default_value='2.5'),
-        DeclareLaunchArgument('max_xy_speed',    default_value='0.8'),
+        DeclareLaunchArgument('max_xy_speed',    default_value='0.5'),
         DeclareLaunchArgument('kp_dist',         default_value='0.5'),
         DeclareLaunchArgument('kd_dist',         default_value='0.3'),
 
