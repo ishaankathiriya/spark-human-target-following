@@ -13,9 +13,12 @@ fixed camera-Y reference. PD controller drives vz toward that reference + offset
 Reference is frozen so drone pitch doesn't fight itself via camera projection.
 """
 
+import csv
 import math
+import os
 import signal
 import time
+from datetime import datetime
 from enum import IntEnum
 
 import rclpy
@@ -171,6 +174,22 @@ class PDFollowControllerMavros(Node):
         self._calib_samples  = []
         self._target_cam_y   = None  # fixed after first alt_calib_n detections
 
+        # CSV logging
+        log_dir = os.path.expanduser('~/follow_logs')
+        os.makedirs(log_dir, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_path = os.path.join(log_dir, f'pd_follow_mavros_{stamp}.csv')
+        self._log_file = open(log_path, 'w', newline='')
+        self._log_writer = csv.writer(self._log_file)
+        self._log_writer.writerow([
+            'time_s',
+            'pos_x_m', 'pos_y_m', 'pos_z_m',
+            'vel_x_ms', 'vel_y_ms', 'vel_z_ms',
+            'cmd_vx_ms', 'cmd_vy_ms', 'cmd_vz_ms', 'cmd_yaw_rate_rads',
+        ])
+        self._log_t0 = time.monotonic()
+        self.get_logger().info(f'Logging to {log_path}')
+
         self.create_timer(self._LOOP_DT, self._control_loop)
         self.get_logger().info(
             f'PDFollowControllerMavros ready — waiting for /flight_ready '
@@ -321,12 +340,16 @@ class PDFollowControllerMavros(Node):
         # self._body_pub.publish(bmsg)
 
         cy, sy = math.cos(self._yaw_enu), math.sin(self._yaw_enu)
-        self._publish_vel(
-            vx       = body_fwd * cy + body_right * sy,
-            vy       = body_fwd * sy - body_right * cy,
-            vz       = body_up,
-            yaw_rate = yaw_rate,
-        )
+        cmd_vx = body_fwd * cy + body_right * sy
+        cmd_vy = body_fwd * sy - body_right * cy
+        self._publish_vel(vx=cmd_vx, vy=cmd_vy, vz=body_up, yaw_rate=yaw_rate)
+
+        self._log_writer.writerow([
+            f'{now - self._log_t0:.4f}',
+            f'{pos[0]:.4f}', f'{pos[1]:.4f}', f'{pos[2]:.4f}',
+            f'{vel[0]:.4f}', f'{vel[1]:.4f}', f'{vel[2]:.4f}',
+            f'{cmd_vx:.4f}', f'{cmd_vy:.4f}', f'{body_up:.4f}', f'{yaw_rate:.4f}',
+        ])
 
     # Publish helpers
 
@@ -344,6 +367,11 @@ class PDFollowControllerMavros(Node):
             'Switch RC to LAND or STABILIZED mode.'
         )
         self._publish_vel(0.0, 0.0, 0.0)
+
+    def close_log(self):
+        self._log_file.flush()
+        self._log_file.close()
+        self.get_logger().info('CSV log saved.')
 
 
 def _clamp(v, lo, hi):
@@ -363,6 +391,7 @@ def main(args=None):
         deadline = time.monotonic() + 0.8
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.05)
+        node.close_log()
         node.destroy_node()
         rclpy.shutdown()
 

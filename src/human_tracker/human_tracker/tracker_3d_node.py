@@ -257,21 +257,21 @@ class HumanTracker3DNode(Node):
         self._prof_track += t2 - t1
         self._prof_post += t3 - t2
         self._prof_n += 1
-        if self._prof_n >= 60:
-            n = self._prof_n
-            bytetrack_ms = self._prof_track - (self._prof_pre + self._prof_infer + self._prof_postp) / 1000.0
-            self.get_logger().info(
-                f'PROFILE ms/frame (avg of {n}): '
-                f'convert={1000 * self._prof_conv / n:.1f} '
-                f'track_total={1000 * self._prof_track / n:.1f} '
-                f'[pre={self._prof_pre / n:.1f} '
-                f'infer={self._prof_infer / n:.1f} '
-                f'yolo_post={self._prof_postp / n:.1f} '
-                f'bytetrack≈{1000 * bytetrack_ms / n:.1f}] '
-                f'post={1000 * self._prof_post / n:.1f} '
-                f'total={1000 * (self._prof_conv + self._prof_track + self._prof_post) / n:.1f}'
-            )
-            self._prof_n = 0
+        # if self._prof_n >= 60:
+        #     n = self._prof_n
+        #     bytetrack_ms = self._prof_track - (self._prof_pre + self._prof_infer + self._prof_postp) / 1000.0
+        #     self.get_logger().info(
+        #         f'PROFILE ms/frame (avg of {n}): '
+        #         f'convert={1000 * self._prof_conv / n:.1f} '
+        #         f'track_total={1000 * self._prof_track / n:.1f} '
+        #         f'[pre={self._prof_pre / n:.1f} '
+        #         f'infer={self._prof_infer / n:.1f} '
+        #         f'yolo_post={self._prof_postp / n:.1f} '
+        #         f'bytetrack≈{1000 * bytetrack_ms / n:.1f}] '
+        #         f'post={1000 * self._prof_post / n:.1f} '
+        #         f'total={1000 * (self._prof_conv + self._prof_track + self._prof_post) / n:.1f}'
+        #     )
+        #     self._prof_n = 0
             self._prof_conv = 0.0
             self._prof_track = 0.0
             self._prof_post = 0.0

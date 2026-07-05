@@ -7,9 +7,12 @@ yaw_rate = 0.0 : drone heading stays fixed throughout.
 Identical to pd_follow_controller_mavros except altitude and yaw axes are disabled.
 """
 
+import csv
 import math
+import os
 import signal
 import time
+from datetime import datetime
 from enum import IntEnum
 
 import rclpy
@@ -138,6 +141,22 @@ class PDFollowXYNode(Node):
         self._state          = _State.HOLD
         self._flight_ready   = False
 
+        # CSV logging
+        log_dir = os.path.expanduser('~/follow_logs')
+        os.makedirs(log_dir, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_path = os.path.join(log_dir, f'pd_follow_xy_{stamp}.csv')
+        self._log_file = open(log_path, 'w', newline='')
+        self._log_writer = csv.writer(self._log_file)
+        self._log_writer.writerow([
+            'time_s',
+            'pos_x_m', 'pos_y_m', 'pos_z_m',
+            'vel_x_ms', 'vel_y_ms', 'vel_z_ms',
+            'cmd_vx_ms', 'cmd_vy_ms', 'cmd_vz_ms', 'cmd_yaw_rate_rads',
+        ])
+        self._log_t0 = time.monotonic()
+        self.get_logger().info(f'Logging to {log_path}')
+
         self.create_timer(self._LOOP_DT, self._control_loop)
         self.get_logger().info(
             f'PDFollowXY ready — waiting for /flight_ready | '
@@ -247,12 +266,16 @@ class PDFollowXYNode(Node):
         self._depth_vel_pub.publish(Float32(data=float(vel[1])))
 
         cy, sy = math.cos(self._yaw_enu), math.sin(self._yaw_enu)
-        self._publish_vel(
-            vx = body_fwd * cy + body_right * sy,
-            vy = body_fwd * sy - body_right * cy,
-            vz = 0.0,        # FC holds hover altitude
-            yaw_rate = 0.0,  # heading stays fixed
-        )
+        cmd_vx = body_fwd * cy + body_right * sy
+        cmd_vy = body_fwd * sy - body_right * cy
+        self._publish_vel(vx=cmd_vx, vy=cmd_vy, vz=0.0, yaw_rate=0.0)
+
+        self._log_writer.writerow([
+            f'{now - self._log_t0:.4f}',
+            f'{pos[0]:.4f}', f'{0.0:.4f}',    f'{pos[1]:.4f}',
+            f'{vel[0]:.4f}', f'{0.0:.4f}',    f'{vel[1]:.4f}',
+            f'{cmd_vx:.4f}', f'{cmd_vy:.4f}', f'{0.0:.4f}', f'{0.0:.4f}',
+        ])
 
     def _publish_vel(self, vx, vy, vz, yaw_rate=0.0):
         msg = Twist()
@@ -265,6 +288,11 @@ class PDFollowXYNode(Node):
     def send_land(self):
         self.get_logger().warn('Shutting down — publishing zero velocity.')
         self._publish_vel(0.0, 0.0, 0.0)
+
+    def close_log(self):
+        self._log_file.flush()
+        self._log_file.close()
+        self.get_logger().info('CSV log saved.')
 
 
 def _clamp(v, lo, hi):
@@ -284,6 +312,7 @@ def main(args=None):
         deadline = time.monotonic() + 0.8
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.05)
+        node.close_log()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
